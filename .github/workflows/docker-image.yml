@@ -27,7 +27,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Build and push to GHCR
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -35,3 +35,17 @@ jobs:
           tags: |
             ghcr.io/fomoesc-git/52zhimo-mir-indexer:latest
             ghcr.io/fomoesc-git/52zhimo-mir-indexer:${{ github.sha }}
+
+      - name: Build local image archive
+        run: |
+          docker build -t 52zhimo-mir-indexer:latest .
+          mkdir -p dist
+          docker save 52zhimo-mir-indexer:latest | gzip > dist/52zhimo-mir-indexer-linux-amd64.tar.gz
+          ls -lh dist/52zhimo-mir-indexer-linux-amd64.tar.gz
+
+      - name: Upload image archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: 52zhimo-mir-indexer-linux-amd64
+          path: dist/52zhimo-mir-indexer-linux-amd64.tar.gz
+          retention-days: 30
