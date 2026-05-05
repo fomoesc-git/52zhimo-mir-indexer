@@ -23,6 +23,13 @@ FILE_SIZE_RE = re.compile(
     r"терабайт(?:а|ов)?|терабайт(?:а|ів)?)",
     re.IGNORECASE,
 )
+FILE_FORMAT_RE = re.compile(
+    r"\b(JPG|JPEG|PDF|PDO|PSD|CDR|BMP|PNG|TIFF?|GIF|RAR|ZIP|7Z|AI|EPS|SVG|DXF|DOCX?|TXT)\b",
+    re.IGNORECASE,
+)
+PAPER_FORMAT_RE = re.compile(r"(?<![A-Za-zА-Яа-я])([ABCАВС][0-6])(?![A-Za-zА-Яа-я])", re.IGNORECASE)
+ARCHIVE_FORMATS = {"RAR", "ZIP", "7Z"}
+CYRILLIC_PAPER_TRANSLATION = str.maketrans({"А": "A", "В": "B", "С": "C", "а": "A", "в": "B", "с": "C"})
 
 FIELD_MAP = {
     "Издательство": "publisher",
@@ -289,16 +296,58 @@ def is_plausible_publisher(value: str) -> bool:
 
 
 def normalize_record_fields(record: ResourceRecord) -> None:
+    combined_format = record.file_format or ""
+    combined_paper = record.paper_format or ""
+    extracted_format = normalize_file_format(combined_format)
+    extracted_paper = normalize_paper_format(" ".join(part for part in [combined_paper, combined_format] if part))
+    if extracted_format:
+        record.file_format = extracted_format
+    if extracted_paper:
+        record.paper_format = extracted_paper
     record.file_size = normalize_file_size(record.file_size)
     record.total_pages = normalize_total_pages(record.total_pages)
 
 
 def normalize_field_value(attr: str, value: str) -> str:
+    if attr == "file_format":
+        return normalize_file_format(value) or clean_text(value)
+    if attr == "paper_format":
+        return normalize_paper_format(value) or clean_text(value)
     if attr == "file_size":
         return normalize_file_size(value) or clean_text(value)
     if attr == "total_pages":
         return normalize_total_pages(value) or clean_text(value)
     return clean_text(value)
+
+
+def normalize_file_format(value: str | None) -> str | None:
+    text = clean_text(value)
+    if not text:
+        return None
+    formats = [match.group(1).upper() for match in FILE_FORMAT_RE.finditer(text)]
+    formats = ["TIF" if item == "TIFF" else item for item in formats]
+    primary = [item for item in formats if item not in ARCHIVE_FORMATS]
+    if primary:
+        return unique_join(primary)
+    if formats:
+        return unique_join(formats)
+    return None
+
+
+def normalize_paper_format(value: str | None) -> str | None:
+    text = clean_text(value)
+    if not text:
+        return None
+    papers = [match.group(1).translate(CYRILLIC_PAPER_TRANSLATION).upper() for match in PAPER_FORMAT_RE.finditer(text)]
+    return unique_join(papers) if papers else None
+
+
+def unique_join(values: list[str]) -> str:
+    unique: list[str] = []
+    for value in values:
+        if value not in unique:
+            unique.append(value)
+    return "/".join(unique)
 
 
 def normalize_file_size(value: str | None) -> str | None:

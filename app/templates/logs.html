@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="panel">
+  <div class="panel-head">
+    <h1>任务日志</h1>
+    <a class="button ghost" href="/logs">全部错误</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>类型</th>
+          <th>状态</th>
+          <th>开始</th>
+          <th>结束</th>
+          <th>耗时</th>
+          <th>资源</th>
+          <th>错误</th>
+          <th>详情</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for run in runs %}
+        <tr>
+          <td>{{ run.id }}</td>
+          <td>{{ run.run_type }}</td>
+          <td><span class="badge {{ run.status }}">{{ run.status }}</span></td>
+          <td>{{ run.started_at }}</td>
+          <td>{{ run.finished_at or '未结束' }}</td>
+          <td>{{ run.duration_seconds or 0 }} 秒</td>
+          <td>新增 {{ run.resources_created }} / 更新 {{ run.resources_updated }}</td>
+          <td>{{ run.errors }}</td>
+          <td><a href="/logs?run_id={{ run.id }}">查看错误</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="empty">还没有任务记录。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>{% if run_id %}任务 #{{ run_id }} 错误{% else %}最近错误{% endif %}</h2>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>时间</th>
+          <th>任务</th>
+          <th>阶段</th>
+          <th>URL</th>
+          <th>错误说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for error in errors %}
+        <tr>
+          <td>{{ error.created_at }}</td>
+          <td>#{{ error.run_id or '' }} {{ error.run_type or '' }}</td>
+          <td>{{ error.stage }}</td>
+          <td class="url-text">
+            {% if error.url %}<a href="{{ error.url }}" target="_blank" rel="noopener">{{ error.url }}</a>{% endif %}
+          </td>
+          <td>{{ error.message }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="empty">没有错误记录。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

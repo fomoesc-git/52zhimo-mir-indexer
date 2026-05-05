@@ -46,7 +46,11 @@
             <a href="{{ row.source_url }}" target="_blank" rel="noopener">{{ row.title }}</a>
             <div class="muted">{{ row.category or '' }} {{ row.published_at or '' }}</div>
           </td>
-          <td>{{ row.publisher or '' }}</td>
+          <td>
+            {% if row.publisher %}
+            <a href="/resources?publisher={{ row.publisher | urlencode }}">{{ row.publisher }}</a>
+            {% endif %}
+          </td>
           <td>{{ row.scale or '' }}</td>
           <td>{{ row.file_format or '' }}</td>
           <td>{{ row.paper_format or '' }}</td>

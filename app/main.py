@@ -17,6 +17,8 @@ from app.repository import (
     count_no_publisher_resources,
     dashboard_stats,
     get_daily_update,
+    list_crawl_errors,
+    list_crawl_runs,
     list_daily_update_items,
     list_daily_updates,
     list_missing_resources,
@@ -214,6 +216,23 @@ def publishers(request: Request, status: str | None = Query(default=None)):
             "status": status or "",
             "task": state,
             "active": "publishers",
+        },
+    )
+
+
+@app.get("/logs")
+@login_required
+def logs(request: Request, run_id: int | None = Query(default=None)):
+    return templates.TemplateResponse(
+        "logs.html",
+        {
+            "request": request,
+            "settings": settings,
+            "runs": list_crawl_runs(),
+            "errors": list_crawl_errors(run_id=run_id),
+            "run_id": run_id,
+            "task": state,
+            "active": "logs",
         },
     )
 

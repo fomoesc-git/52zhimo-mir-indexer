@@ -645,6 +645,42 @@ def list_daily_update_items(update_id: int, limit: int = 2000) -> list[sqlite3.R
         ).fetchall()
 
 
+def list_crawl_runs(limit: int = 100) -> list[sqlite3.Row]:
+    with connect() as conn:
+        return conn.execute(
+            """
+            SELECT
+                *,
+                CASE
+                    WHEN finished_at IS NOT NULL THEN
+                        CAST((julianday(finished_at) - julianday(started_at)) * 86400 AS INTEGER)
+                    ELSE
+                        CAST((julianday('now') - julianday(started_at)) * 86400 AS INTEGER)
+                END AS duration_seconds
+            FROM crawl_runs
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+
+def list_crawl_errors(limit: int = 300, run_id: int | None = None) -> list[sqlite3.Row]:
+    sql = """
+        SELECT e.*, r.run_type
+        FROM crawl_errors e
+        LEFT JOIN crawl_runs r ON r.id = e.run_id
+    """
+    params: list[object] = []
+    if run_id:
+        sql += " WHERE e.run_id = ?"
+        params.append(run_id)
+    sql += " ORDER BY e.id DESC LIMIT ?"
+    params.append(limit)
+    with connect() as conn:
+        return conn.execute(sql, params).fetchall()
+
+
 def dashboard_stats() -> dict[str, int]:
     with connect() as conn:
         row = conn.execute(

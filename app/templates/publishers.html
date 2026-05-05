@@ -14,6 +14,10 @@
         <input type="hidden" name="kind" value="publisher_index">
         <button class="button secondary" type="submit" {% if task.running %}disabled{% endif %}>刷新出版商目录</button>
       </form>
+      <form method="post" action="/jobs/start">
+        <input type="hidden" name="kind" value="repair">
+        <button class="button secondary" type="submit" {% if task.running %}disabled{% endif %}>补采缺字段资源</button>
+      </form>
     </div>
   </div>
 
@@ -70,7 +74,7 @@
           </form>
           {% elif row.source_url %}
           <form method="post" action="/jobs/publisher/{{ row.id }}">
-            <button class="button ghost" type="submit" {% if task.running %}disabled{% endif %}>采集此出版商</button>
+            <button class="button ghost" type="submit" {% if task.running %}disabled{% endif %}>重新采集</button>
           </form>
           {% endif %}
         </td>
