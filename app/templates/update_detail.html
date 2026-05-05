@@ -10,8 +10,11 @@
       <a class="button ghost" href="/updates">返回批次</a>
     </div>
   </div>
+  {% if update.window_started_at or update.window_finished_at %}
+  <p class="hint">检查窗口：{{ update.window_started_at or '' }} 至 {{ update.window_finished_at or '' }}</p>
+  {% endif %}
   <div class="table-wrap">
-    <table>
+    <table class="nowrap-table resource-table">
       <thead>
         <tr>
           <th>出版商</th>
@@ -27,8 +30,16 @@
       <tbody>
         {% for row in rows %}
         <tr>
-          <td>{{ row.publisher or '无出版商' }}</td>
-          <td><a href="{{ row.resource_url }}" target="_blank" rel="noopener">{{ row.title }}</a></td>
+          <td>
+            {% if row.publisher_url %}
+            <a href="/resources?publisher_url={{ row.publisher_url | urlencode }}">{{ row.publisher or '无出版商' }}</a>
+            {% elif row.publisher %}
+            <a href="/resources?publisher={{ row.publisher | urlencode }}">{{ row.publisher }}</a>
+            {% else %}
+            无出版商
+            {% endif %}
+          </td>
+          <td class="allow-wrap title-cell"><a href="{{ row.resource_url }}" target="_blank" rel="noopener">{{ row.title }}</a></td>
           <td>{{ row.scale or '' }}</td>
           <td>{{ row.file_format or '' }}</td>
           <td>{{ row.paper_format or '' }}</td>

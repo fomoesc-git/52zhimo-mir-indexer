@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import math
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import datetime, timedelta
 from typing import Callable
 
 from app.client import FetchClient
@@ -12,28 +12,37 @@ from app.models import PublisherRecord
 from app.parser import (
     normalize_url,
     parse_detail,
-    parse_news_list,
+    parse_news_entries,
     parse_publisher_count,
     parse_publisher_index,
+    parse_publisher_page_urls,
     parse_publisher_resource_links,
 )
 from app.repository import (
     add_daily_update_item,
     create_run,
-    create_daily_update,
+    create_daily_update_window,
+    daily_update_seen_urls,
+    existing_resources_for_urls,
     finish_daily_update,
     finish_run,
+    get_state_value,
     list_publishers,
     log_error,
     mark_publisher_crawled,
     merge_resource,
     missing_resource_urls,
     publisher_by_id,
+    set_state_value,
     update_publisher_counts,
     upsert_discovered_publisher,
     upsert_publisher,
     upsert_resource,
 )
+
+
+DAILY_LAST_CHECKED_KEY = "daily_news_last_checked_at"
+NEWS_PAGE_LIMIT = 20
 
 
 @dataclass
@@ -77,7 +86,12 @@ class Crawler:
     async def close(self) -> None:
         await self.client.close()
 
-    async def crawl_publishers_index(self, run_id: int, stats: CrawlStats) -> list[PublisherRecord]:
+    async def crawl_publishers_index(
+        self,
+        run_id: int,
+        stats: CrawlStats,
+        refresh_counts: bool = False,
+    ) -> list[PublisherRecord]:
         first_url = f"{self.settings.base_url}/publ/1"
         self.report(stats, "读取出版商目录", "第 1 页", first_url)
         html = await self.client.get_text(first_url)
@@ -87,15 +101,26 @@ class Crawler:
         publishers: list[PublisherRecord] = []
         publishers.extend(parse_publisher_index(html))
 
+        page_urls: list[str] = []
+        seen_page_urls: set[str] = set()
         for page in range(2, pages + 1):
             url = f"{self.settings.base_url}/publ/1-{page}"
+            page_urls.append(url)
+            seen_page_urls.add(url)
+        for url in parse_publisher_page_urls(html):
+            if url not in seen_page_urls and url.rstrip("/") != first_url.rstrip("/"):
+                page_urls.append(url)
+                seen_page_urls.add(url)
+
+        for index, url in enumerate(page_urls, start=2):
             try:
-                self.report(stats, "读取出版商目录", f"第 {page}/{pages} 页", url)
+                total_pages = max(pages, len(page_urls) + 1)
+                self.report(stats, "读取出版商目录", f"第 {index}/{total_pages} 页", url)
                 page_html = await self.client.get_text(url)
                 publishers.extend(parse_publisher_index(page_html))
             except Exception as exc:
                 stats.errors += 1
-                self.report(stats, "出版商目录失败", f"第 {page}/{pages} 页", url)
+                self.report(stats, "出版商目录失败", f"第 {index} 页", url)
                 log_error(run_id, url, "publisher_index", str(exc))
 
         seen: set[str] = set()
@@ -110,7 +135,33 @@ class Crawler:
                 stats.publishers_created += 1
         stats.publishers_seen += len(unique)
         self.report(stats, "出版商目录完成", f"发现 {len(unique)} 个出版商", first_url)
+        if refresh_counts:
+            await self.refresh_publisher_link_counts(run_id, unique, stats)
         return unique
+
+    async def refresh_publisher_link_counts(
+        self,
+        run_id: int,
+        publishers: list[PublisherRecord],
+        stats: CrawlStats,
+    ) -> None:
+        total = len(publishers)
+        for index, publisher in enumerate(publishers, start=1):
+            try:
+                self.report(
+                    stats,
+                    "统计出版商资源数",
+                    f"{index}/{total} {publisher.name}",
+                    publisher.source_url,
+                )
+                html = await self.client.get_text(publisher.source_url)
+                links = parse_publisher_resource_links(html)
+                stats.resource_links_seen += len(links)
+                update_publisher_counts(publisher.source_url, len(links))
+            except Exception as exc:
+                stats.errors += 1
+                self.report(stats, "统计出版商资源数失败", publisher.name, publisher.source_url)
+                log_error(run_id, publisher.source_url, "publisher_count", str(exc))
 
     async def crawl_publisher(self, run_id: int, publisher: PublisherRecord, stats: CrawlStats) -> None:
         try:
@@ -118,8 +169,22 @@ class Crawler:
             html = await self.client.get_text(publisher.source_url)
             links = parse_publisher_resource_links(html)
             stats.resource_links_seen += len(links)
-            self.report(stats, "出版商资源链接完成", f"{publisher.name}：{len(links)} 个链接", publisher.source_url)
-            for url in links:
+            update_publisher_counts(publisher.source_url, len(links))
+
+            existing = existing_resources_for_urls(links)
+            pending_links = [
+                url
+                for url in links
+                if url not in existing or existing[url]["publisher_url"] != publisher.source_url
+            ]
+            skipped = len(links) - len(pending_links)
+            self.report(
+                stats,
+                "出版商资源链接完成",
+                f"{publisher.name}：{len(links)} 个链接，待采集 {len(pending_links)} 个，已跳过 {skipped} 个",
+                publisher.source_url,
+            )
+            for url in pending_links:
                 await self.crawl_resource(run_id, url, stats, publisher, merge=True)
             update_publisher_counts(publisher.source_url, len(links))
             mark_publisher_crawled(publisher.source_url)
@@ -226,15 +291,28 @@ class Crawler:
         stats = CrawlStats()
         status = "ok"
         update_id: int | None = None
+        window_end = datetime.now().replace(microsecond=0)
+        window_start = parse_datetime_state(get_state_value(DAILY_LAST_CHECKED_KEY))
+        if window_start is None:
+            window_start = window_end - timedelta(days=1)
         try:
-            self.report(stats, "检查 news 开始")
-            update_id = create_daily_update(run_id)
+            window_label = f"{format_datetime(window_start)} 至 {format_datetime(window_end)}"
+            self.report(stats, "检查 news 开始", window_label)
+            update_id = create_daily_update_window(
+                run_id,
+                update_date=window_end.date().isoformat(),
+                window_started_at=format_datetime(window_start),
+                window_finished_at=format_datetime(window_end),
+            )
             await self.crawl_publishers_index(run_id, stats)
-            html = await self.client.get_text(f"{self.settings.base_url}/news/")
-            today = date.today()
-            links = parse_news_list(html, only_today=True, target_date=today)
-            stats.resource_links_seen = len(links)
-            self.report(stats, "news 列表完成", f"{today.isoformat()}：{len(links)} 个资源", f"{self.settings.base_url}/news/")
+            links = await self.collect_news_window(run_id, stats, window_start, window_end)
+            stats.resource_links_seen += len(links)
+            self.report(
+                stats,
+                "news 列表完成",
+                f"{window_label}：{len(links)} 个未记录过的资源",
+                f"{self.settings.base_url}/news/",
+            )
             for url in links:
                 before_created = stats.resources_created
                 normalized = normalize_url(url)
@@ -260,10 +338,61 @@ class Crawler:
             log_error(run_id, f"{self.settings.base_url}/news/", "news", str(exc))
             stats.messages.append(str(exc))
         finally:
-            finish_run(run_id, status, stats.as_dict(), "; ".join(stats.messages) or None)
+            final_status = "warning" if status == "ok" and stats.errors else status
+            finish_run(run_id, final_status, stats.as_dict(), "; ".join(stats.messages) or None)
             if update_id:
-                finish_daily_update(update_id, status)
+                finish_daily_update(update_id, final_status)
+            if final_status == "ok":
+                set_state_value(DAILY_LAST_CHECKED_KEY, format_datetime(window_end))
         return stats
+
+    async def collect_news_window(
+        self,
+        run_id: int,
+        stats: CrawlStats,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> list[str]:
+        lower_date = window_start.date()
+        upper_date = window_end.date()
+        links: list[str] = []
+        seen: set[str] = set()
+
+        for page in range(1, NEWS_PAGE_LIMIT + 1):
+            url = f"{self.settings.base_url}/news/" if page == 1 else f"{self.settings.base_url}/news/?page{page}"
+            try:
+                self.report(stats, "读取 news 列表", f"第 {page} 页", url)
+                html = await self.client.get_text(url)
+                entries = parse_news_entries(html)
+            except Exception as exc:
+                stats.errors += 1
+                self.report(stats, "news 列表失败", f"第 {page} 页", url)
+                log_error(run_id, url, "news_list", str(exc))
+                break
+
+            if not entries:
+                break
+
+            reached_older_items = False
+            for entry in entries:
+                if entry.published_date:
+                    if entry.published_date < lower_date:
+                        reached_older_items = True
+                        continue
+                    if entry.published_date > upper_date:
+                        continue
+                elif page > 1:
+                    continue
+
+                if entry.url not in seen:
+                    seen.add(entry.url)
+                    links.append(entry.url)
+
+            if reached_older_items:
+                break
+
+        already_seen = daily_update_seen_urls(links)
+        return [url for url in links if url not in already_seen]
 
     async def crawl_one_publisher(self, publisher_id: int) -> CrawlStats:
         run_id = create_run("publisher")
@@ -314,7 +443,7 @@ class Crawler:
         stats = CrawlStats()
         status = "ok"
         try:
-            await self.crawl_publishers_index(run_id, stats)
+            await self.crawl_publishers_index(run_id, stats, refresh_counts=True)
         except Exception as exc:
             status = "failed"
             stats.errors += 1
@@ -359,3 +488,18 @@ def run_job_sync(
     return asyncio.run(
         run_job(kind, progress=progress, pause_checker=pause_checker, publisher_id=publisher_id)
     )
+
+
+def parse_datetime_state(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    for candidate in (value, value.replace("T", " ")):
+        try:
+            return datetime.fromisoformat(candidate)
+        except ValueError:
+            continue
+    return None
+
+
+def format_datetime(value: datetime) -> str:
+    return value.replace(microsecond=0).isoformat(sep=" ")

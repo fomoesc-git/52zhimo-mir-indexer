@@ -15,6 +15,7 @@ from app.exporter import export_daily_csv, export_daily_xlsx
 from app.repository import (
     confirm_discovered_publisher,
     count_no_publisher_resources,
+    count_publishers,
     dashboard_stats,
     get_daily_update,
     list_crawl_errors,
@@ -34,6 +35,24 @@ settings = get_settings()
 app = FastAPI(title=settings.app_name)
 templates = Jinja2Templates(directory="app/templates")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+PAGE_SIZE_OPTIONS = ("20", "50", "100", "all")
+
+
+def parse_page_size(value: str, default: int = 50) -> tuple[int, str]:
+    if value == "all":
+        return 1_000_000, "all"
+    try:
+        number = int(value)
+    except ValueError:
+        number = default
+    if number not in {20, 50, 100}:
+        number = default
+    return number, str(number)
+
+
+def page_count_for(total: int, limit: int) -> int:
+    return max((total + limit - 1) // limit, 1)
 
 
 @app.on_event("startup")
@@ -149,8 +168,9 @@ def resources(
     publisher: str | None = Query(default=None),
     publisher_url: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
+    per_page: str = Query(default="50"),
 ):
-    limit = 50
+    limit, per_page = parse_page_size(per_page, 50)
     offset = (page - 1) * limit
     rows, total = list_resources(
         q=q,
@@ -159,7 +179,7 @@ def resources(
         limit=limit,
         offset=offset,
     )
-    page_count = max((total + limit - 1) // limit, 1)
+    page_count = page_count_for(total, limit)
     return templates.TemplateResponse(
         "resources.html",
         {
@@ -170,6 +190,8 @@ def resources(
             "page": page,
             "page_count": page_count,
             "limit": limit,
+            "per_page": per_page,
+            "page_size_options": PAGE_SIZE_OPTIONS,
             "q": q or "",
             "publisher": publisher or "",
             "publisher_url": publisher_url or "",
@@ -182,11 +204,15 @@ def resources(
 
 @app.get("/resources/missing")
 @login_required
-def missing_resources(request: Request, page: int = Query(default=1, ge=1)):
-    limit = 100
+def missing_resources(
+    request: Request,
+    page: int = Query(default=1, ge=1),
+    per_page: str = Query(default="100"),
+):
+    limit, per_page = parse_page_size(per_page, 100)
     offset = (page - 1) * limit
     rows, total = list_missing_resources(limit=limit, offset=offset)
-    page_count = max((total + limit - 1) // limit, 1)
+    page_count = page_count_for(total, limit)
     return templates.TemplateResponse(
         "missing_resources.html",
         {
@@ -197,6 +223,8 @@ def missing_resources(request: Request, page: int = Query(default=1, ge=1)):
             "page": page,
             "page_count": page_count,
             "limit": limit,
+            "per_page": per_page,
+            "page_size_options": PAGE_SIZE_OPTIONS,
             "task": state,
             "active": "resources",
         },
@@ -205,14 +233,48 @@ def missing_resources(request: Request, page: int = Query(default=1, ge=1)):
 
 @app.get("/publishers")
 @login_required
-def publishers(request: Request, status: str | None = Query(default=None)):
+def publishers(
+    request: Request,
+    status: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    per_page: str = Query(default="50"),
+    sort: str = Query(default="status"),
+    order: str = Query(default="desc"),
+):
+    if sort not in {"name", "status", "progress"}:
+        sort = "status"
+    if order not in {"asc", "desc"}:
+        order = "desc"
+    limit, per_page = parse_page_size(per_page, 50)
+    total = count_publishers(status)
+    page_count = page_count_for(total, limit)
+    page = min(page, page_count)
+    offset = (page - 1) * limit
+    no_publisher_count = count_no_publisher_resources()
     return templates.TemplateResponse(
         "publishers.html",
         {
             "request": request,
             "settings": settings,
-            "rows": list_publishers(limit=10000, status=status),
-            "no_publisher_count": count_no_publisher_resources(),
+            "rows": list_publishers(
+                limit=limit,
+                status=status,
+                offset=offset,
+                sort=sort,
+                order=order,
+            ),
+            "total": total,
+            "page": page,
+            "page_count": page_count,
+            "limit": limit,
+            "per_page": per_page,
+            "page_size_options": PAGE_SIZE_OPTIONS,
+            "sort": sort,
+            "order": order,
+            "next_status_order": "asc" if sort == "status" and order == "desc" else "desc",
+            "next_progress_order": "asc" if sort == "progress" and order == "desc" else "desc",
+            "no_publisher_count": no_publisher_count,
+            "show_no_publisher": bool(no_publisher_count and (not status or status == "confirmed") and page == 1),
             "status": status or "",
             "task": state,
             "active": "publishers",

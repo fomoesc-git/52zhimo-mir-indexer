@@ -198,6 +198,18 @@ h2 {
   gap: 10px;
 }
 
+.compact-filter {
+  align-items: center;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.compact-filter label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .job-grid {
   align-items: center;
 }
@@ -272,6 +284,10 @@ select {
   font: inherit;
 }
 
+.compact-filter select {
+  min-width: 120px;
+}
+
 input[type="search"] {
   min-width: 320px;
 }
@@ -292,6 +308,27 @@ td {
   text-align: left;
   vertical-align: middle;
   line-height: 1.45;
+}
+
+.nowrap-table th,
+.nowrap-table td {
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.nowrap-table .allow-wrap {
+  white-space: normal;
+  min-width: 320px;
+  max-width: 560px;
+}
+
+.title-cell a {
+  font-size: 14px;
+}
+
+.sort-link {
+  color: inherit;
+  white-space: nowrap;
 }
 
 th {

@@ -29,20 +29,40 @@
   </header>
 
   {% if task and task.running %}
-  <div class="notice running">
+  <div class="notice running" data-notice-key="running:{{ task.current_kind }}:{{ task.current_publisher_id or '' }}">
     <span>正在运行：{{ task.current_kind }}，当前阶段：{{ task.stage }}。页面会自动刷新。</span>
-    <button type="button" onclick="this.closest('.notice').remove()">关闭</button>
+    <button type="button" onclick="dismissNotice(this)">关闭</button>
   </div>
   {% elif task and task.last_message %}
-  <div class="notice {{ task.last_status }}">
+  <div class="notice {{ task.last_status }}" data-notice-key="last:{{ task.last_kind }}:{{ task.last_status }}:{{ task.last_message }}">
     <span>{{ task.last_kind }}：{{ task.last_message }}</span>
     <a href="/logs">查看日志</a>
-    <button type="button" onclick="this.closest('.notice').remove()">关闭</button>
+    <button type="button" onclick="dismissNotice(this)">关闭</button>
   </div>
   {% endif %}
 
   <main class="container">
     {% block content %}{% endblock %}
   </main>
+  <script>
+    function noticeKey(element) {
+      return element && element.dataset ? element.dataset.noticeKey : "";
+    }
+
+    function dismissNotice(button) {
+      const notice = button.closest(".notice");
+      const key = noticeKey(notice);
+      if (key) {
+        localStorage.setItem("dismissedNoticeKey", key);
+      }
+      notice.remove();
+    }
+
+    document.querySelectorAll(".notice[data-notice-key]").forEach((notice) => {
+      if (localStorage.getItem("dismissedNoticeKey") === noticeKey(notice)) {
+        notice.remove();
+      }
+    });
+  </script>
 </body>
 </html>

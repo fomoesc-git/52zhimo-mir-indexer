@@ -19,6 +19,11 @@
       <option value="{{ option }}" {% if option == publisher %}selected{% endif %}>{{ option }}</option>
       {% endfor %}
     </select>
+    <select name="per_page">
+      {% for option in page_size_options %}
+      <option value="{{ option }}" {% if option == per_page %}selected{% endif %}>每页 {{ '全部' if option == 'all' else option }}</option>
+      {% endfor %}
+    </select>
     <button class="button" type="submit">筛选</button>
     <a class="button ghost" href="/resources">清空</a>
     <a class="button ghost" href="/resources/missing">查看缺字段</a>
@@ -26,7 +31,7 @@
 
   <div class="table-meta">共 {{ total }} 条，当前第 {{ page }} / {{ page_count }} 页</div>
   <div class="table-wrap">
-    <table>
+    <table class="nowrap-table resource-table">
       <thead>
         <tr>
           <th>标题</th>
@@ -42,13 +47,17 @@
       <tbody>
         {% for row in rows %}
         <tr>
-          <td>
+          <td class="allow-wrap title-cell">
             <a href="{{ row.source_url }}" target="_blank" rel="noopener">{{ row.title }}</a>
             <div class="muted">{{ row.category or '' }} {{ row.published_at or '' }}</div>
           </td>
           <td>
             {% if row.publisher %}
+            {% if row.publisher_url %}
+            <a href="/resources?publisher_url={{ row.publisher_url | urlencode }}">{{ row.publisher }}</a>
+            {% else %}
             <a href="/resources?publisher={{ row.publisher | urlencode }}">{{ row.publisher }}</a>
+            {% endif %}
             {% endif %}
           </td>
           <td>{{ row.scale or '' }}</td>
@@ -71,19 +80,20 @@
 
   <div class="pager">
     {% if page > 1 %}
-    <a class="button ghost" href="/resources?q={{ q | urlencode }}&publisher={{ publisher | urlencode }}&publisher_url={{ publisher_url | urlencode }}&page=1">首页</a>
-    <a class="button ghost" href="/resources?q={{ q | urlencode }}&publisher={{ publisher | urlencode }}&publisher_url={{ publisher_url | urlencode }}&page={{ page - 1 }}">上一页</a>
+    <a class="button ghost" href="/resources?q={{ q | urlencode }}&publisher={{ publisher | urlencode }}&publisher_url={{ publisher_url | urlencode }}&per_page={{ per_page }}&page=1">首页</a>
+    <a class="button ghost" href="/resources?q={{ q | urlencode }}&publisher={{ publisher | urlencode }}&publisher_url={{ publisher_url | urlencode }}&per_page={{ per_page }}&page={{ page - 1 }}">上一页</a>
     {% endif %}
     <form class="page-jump" method="get" action="/resources">
       <input type="hidden" name="q" value="{{ q }}">
       <input type="hidden" name="publisher" value="{{ publisher }}">
       <input type="hidden" name="publisher_url" value="{{ publisher_url }}">
+      <input type="hidden" name="per_page" value="{{ per_page }}">
       <input type="number" name="page" min="1" max="{{ page_count }}" value="{{ page }}">
       <button class="button ghost" type="submit">跳转</button>
     </form>
-    {% if page * limit < total %}
-    <a class="button ghost" href="/resources?q={{ q | urlencode }}&publisher={{ publisher | urlencode }}&publisher_url={{ publisher_url | urlencode }}&page={{ page + 1 }}">下一页</a>
-    <a class="button ghost" href="/resources?q={{ q | urlencode }}&publisher={{ publisher | urlencode }}&publisher_url={{ publisher_url | urlencode }}&page={{ page_count }}">末页</a>
+    {% if page < page_count %}
+    <a class="button ghost" href="/resources?q={{ q | urlencode }}&publisher={{ publisher | urlencode }}&publisher_url={{ publisher_url | urlencode }}&per_page={{ per_page }}&page={{ page + 1 }}">下一页</a>
+    <a class="button ghost" href="/resources?q={{ q | urlencode }}&publisher={{ publisher | urlencode }}&publisher_url={{ publisher_url | urlencode }}&per_page={{ per_page }}&page={{ page_count }}">末页</a>
     {% endif %}
   </div>
 </section>

@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import json
 import re
+from dataclasses import dataclass
 from datetime import date
 from urllib.parse import urljoin, urlparse
 
@@ -49,6 +50,9 @@ FIELD_MAP = {
     "Размер": "file_size",
     "Листов всего/выкройки": "total_pages",
     "Листов всего/с выкройками": "total_pages",
+    "Листов с инструкцией/выкройки": "total_pages",
+    "Листов с инструкцией / выкройки": "total_pages",
+    "Листов с инструкцией": "total_pages",
     "Листов всего": "total_pages",
     "Листов с выкройками": "total_pages",
     "Количество страниц": "total_pages",
@@ -56,13 +60,13 @@ FIELD_MAP = {
     "Листов": "total_pages",
 }
 
-FIELD_LABEL_RE = re.compile(
-    r"^(Издательство|Издатель|Издание|Автор|Авторы|Формат файла|Формат листов|Формат листа|"
-    r"Формат страниц|Формат страницы|Формат|Масштаб макета|Масштаб|Размер файла|Размер|"
-    r"Листов всего/выкройки|Листов всего/с выкройками|Листов всего|Листов с выкройками|"
-    r"Количество страниц|Страниц|Листов)\s*(?::|-|–|—)\s*(.*)$",
-    re.IGNORECASE,
-)
+FIELD_SPLIT_RE = re.compile(r"^(.{2,90}?)(?::|-|–|—)\s*(.*)$", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class NewsEntry:
+    url: str
+    published_date: date | None = None
 
 
 def normalize_url(url: str) -> str:
@@ -146,6 +150,21 @@ def parse_publisher_count(html_text: str) -> tuple[int | None, int | None]:
     return total, per_page
 
 
+def parse_publisher_page_urls(html_text: str) -> list[str]:
+    soup = BeautifulSoup(html_text, "html.parser")
+    urls: list[str] = []
+    seen: set[str] = set()
+    for link in soup.select("a[href*='/publ/1-']"):
+        url = normalize_url(link.get("href", ""))
+        path = urlparse(url).path.rstrip("/")
+        if not re.fullmatch(r"/publ/1-\d+", path):
+            continue
+        if url not in seen:
+            seen.add(url)
+            urls.append(url)
+    return urls
+
+
 def parse_publisher_resource_links(html_text: str) -> list[str]:
     soup = BeautifulSoup(html_text, "html.parser")
     content = soup.select_one(".fdesc.full-text") or soup
@@ -161,46 +180,59 @@ def parse_publisher_resource_links(html_text: str) -> list[str]:
     return links
 
 
-def parse_news_list(
-    html_text: str,
-    only_today: bool = False,
-    target_date: date | None = None,
-) -> list[str]:
+def parse_news_entries(html_text: str) -> list[NewsEntry]:
     soup = BeautifulSoup(html_text, "html.parser")
     container = soup.select_one("#allEntries") or soup
-    links: list[str] = []
+    entries: list[NewsEntry] = []
     seen: set[str] = set()
 
-    if only_today:
-        for article in container.select("article.short"):
-            link = article.select_one("h2 a[href*='/news/']")
-            if not link:
-                continue
-            url = normalize_url(link["href"])
-            if not is_news_detail(url) or url in seen:
-                continue
-            time_node = article.select_one("time[itemprop='datePublished'], time")
-            time_text = clean_text(time_node.get_text(" ")) if time_node else ""
-            url_date = news_date_from_url(url)
-            is_today = time_text.lower() in {"сегодня", "today"}
-            matches_target = bool(target_date and url_date == target_date.isoformat())
-            if is_today or matches_target:
-                seen.add(url)
-                links.append(url)
-        return links
+    for article in container.select("article.short"):
+        link = article.select_one("h2 a[href*='/news/']")
+        if not link:
+            continue
+        url = normalize_url(link["href"])
+        if not is_news_detail(url) or url in seen:
+            continue
+        seen.add(url)
+        entries.append(NewsEntry(url=url, published_date=parse_news_date(url)))
+
+    if entries:
+        return entries
 
     for link in container.select("a[href*='/news/']"):
         url = normalize_url(link["href"])
         if is_news_detail(url) and url not in seen:
             seen.add(url)
-            links.append(url)
+            entries.append(NewsEntry(url=url, published_date=parse_news_date(url)))
 
-    return links
+    return entries
+
+
+def parse_news_list(
+    html_text: str,
+    only_today: bool = False,
+    target_date: date | None = None,
+) -> list[str]:
+    if only_today:
+        today = target_date or date.today()
+        return [entry.url for entry in parse_news_entries(html_text) if entry.published_date == today]
+
+    return [entry.url for entry in parse_news_entries(html_text)]
 
 
 def news_date_from_url(url: str) -> str | None:
     match = NEWS_URL_DATE_RE.search(urlparse(normalize_url(url)).path)
     return match.group(1) if match else None
+
+
+def parse_news_date(url: str) -> date | None:
+    value = news_date_from_url(url)
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 def parse_detail(html_text: str, source_url: str) -> ResourceRecord:
@@ -259,21 +291,18 @@ def apply_description_fields(record: ResourceRecord, description: str) -> None:
     lines = [clean_text(line) for line in description.split("\n") if clean_text(line)]
     pending_attr: str | None = None
     for line in lines:
-        match = FIELD_LABEL_RE.match(line)
-        if not match:
+        parsed = parse_field_line(line)
+        if not parsed:
             if pending_attr and line:
-                setattr(record, pending_attr, line)
+                apply_field_value(record, pending_attr, line)
                 pending_attr = None
             continue
-        label = normalize_label(match.group(1))
-        value = clean_text(match.group(2))
-        attr = FIELD_MAP.get(label)
-        if attr:
-            if value:
-                setattr(record, attr, normalize_field_value(attr, value))
-                pending_attr = None
-            else:
-                pending_attr = attr
+        attr, value = parsed
+        if value:
+            apply_field_value(record, attr, value)
+            pending_attr = None
+        else:
+            pending_attr = attr
 
     if not record.publisher:
         match = re.search(r"[\[(]([^][()]+?)(?:\s+\d{2,4}(?:[-/]\d{1,2})?)?[\])]", record.title)
@@ -281,12 +310,41 @@ def apply_description_fields(record: ResourceRecord, description: str) -> None:
             record.publisher = clean_text(match.group(1))
 
 
+def parse_field_line(line: str) -> tuple[str, str] | None:
+    match = FIELD_SPLIT_RE.match(line)
+    if not match:
+        return None
+    label = normalize_label(match.group(1))
+    attr = FIELD_MAP.get(label) or infer_field_attr(label)
+    if not attr:
+        return None
+    return attr, clean_text(match.group(2))
+
+
 def normalize_label(label: str) -> str:
-    compact = clean_text(label)
+    compact = re.sub(r"\s*/\s*", "/", clean_text(label))
     for key in FIELD_MAP:
-        if compact.lower() == key.lower():
+        normalized_key = re.sub(r"\s*/\s*", "/", key)
+        if compact.lower() == normalized_key.lower():
             return key
     return compact
+
+
+def infer_field_attr(label: str) -> str | None:
+    text = label.lower()
+    if "масштаб" in text:
+        return "scale"
+    if "размер" in text:
+        return "file_size"
+    if "лист" in text or "страниц" in text:
+        if "формат" in text:
+            return "paper_format"
+        return "total_pages"
+    if "формат" in text:
+        return "file_format"
+    if any(word in text for word in ["издател", "издание", "автор"]):
+        return "publisher"
+    return None
 
 
 def is_plausible_publisher(value: str) -> bool:
@@ -306,6 +364,29 @@ def normalize_record_fields(record: ResourceRecord) -> None:
         record.paper_format = extracted_paper
     record.file_size = normalize_file_size(record.file_size)
     record.total_pages = normalize_total_pages(record.total_pages)
+    if record.raw_description:
+        if not record.file_format:
+            record.file_format = normalize_file_format(record.raw_description)
+        if not record.paper_format:
+            record.paper_format = normalize_paper_format(record.raw_description)
+        if not record.file_size:
+            record.file_size = normalize_file_size(record.raw_description)
+
+
+def apply_field_value(record: ResourceRecord, attr: str, value: str) -> None:
+    raw = clean_text(value)
+    normalized = normalize_field_value(attr, raw)
+    if normalized:
+        setattr(record, attr, normalized)
+
+    if attr == "file_format":
+        paper = normalize_paper_format(raw)
+        if paper:
+            record.paper_format = paper
+    elif attr == "paper_format":
+        file_format = normalize_file_format(raw)
+        if file_format and not record.file_format:
+            record.file_format = file_format
 
 
 def normalize_field_value(attr: str, value: str) -> str:

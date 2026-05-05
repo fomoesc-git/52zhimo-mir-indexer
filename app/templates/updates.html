@@ -9,7 +9,7 @@
       <button class="button" type="submit" {% if task.running %}disabled{% endif %}>立即检查最新 news</button>
     </form>
   </div>
-  <p class="hint">每日 news 任务会单独生成一个批次，方便和全站采集结果分开整理、导出和上传。</p>
+  <p class="hint">每日 news 任务会单独生成一个批次，采集范围按“上次成功检查时间”到“本次检查时间”计算，方便和全站采集结果分开整理、导出和上传。</p>
 </section>
 
 <section class="panel">
@@ -47,11 +47,13 @@
   <div class="panel-head">
     <h2>批次列表</h2>
   </div>
-  <table>
+  <div class="table-wrap">
+  <table class="nowrap-table">
     <thead>
       <tr>
         <th>批次</th>
         <th>日期</th>
+        <th>检查窗口</th>
         <th>状态</th>
         <th>资源</th>
         <th>开始</th>
@@ -64,6 +66,7 @@
       <tr>
         <td><a href="/updates/{{ row.id }}">#{{ row.id }}</a></td>
         <td>{{ row.update_date }}</td>
+        <td>{{ row.window_started_at or '' }} 至 {{ row.window_finished_at or '' }}</td>
         <td><span class="badge {{ row.status }}">{{ row.status }}</span></td>
         <td>{{ row.items_seen }} 个</td>
         <td>{{ row.started_at }}</td>
@@ -75,9 +78,10 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="7" class="empty">还没有每日更新批次。</td></tr>
+      <tr><td colspan="8" class="empty">还没有每日更新批次。</td></tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </section>
 {% endblock %}

@@ -150,6 +150,8 @@ def migrate(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "publishers", "canonical_key", "TEXT")
     ensure_column(conn, "publishers", "previous_names", "TEXT")
     ensure_column(conn, "resources", "daily_seen_at", "TEXT")
+    ensure_column(conn, "daily_updates", "window_started_at", "TEXT")
+    ensure_column(conn, "daily_updates", "window_finished_at", "TEXT")
 
 
 def ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:

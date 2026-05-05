@@ -21,78 +21,126 @@
     </div>
   </div>
 
-  <table>
-    <thead>
-      <tr>
-        <th>名称</th>
-        <th>采集状态</th>
-        <th>资源进度</th>
-        <th>源页面</th>
-        <th>最后采集</th>
-        <th>操作</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in rows %}
-      <tr>
-        <td>
-          {% if row.source_url %}
-          <a href="/resources?publisher_url={{ row.source_url | urlencode }}">{{ row.name }}</a>
-          {% else %}
-          <a href="/resources?publisher={{ row.name | urlencode }}">{{ row.name }}</a>
-          {% endif %}
-          {% if row.previous_names %}
-          <span class="muted">（原名：{{ row.previous_names.replace('|', '、') }}）</span>
-          {% endif %}
-        </td>
-        <td>
-          {% if row.status == 'discovered' %}
-          <span class="badge warning">待确认</span>
-          {% elif row.status == 'confirmed' or (row.status == 'active' and not row.source_url) %}
-          <span class="badge active">已确认</span>
-          {% elif row.resource_links_seen and row.collected_count >= row.resource_links_seen %}
-          <span class="badge active">已采集完成</span>
-          {% else %}
-          <span class="badge warning">未采集完</span>
-          {% endif %}
-        </td>
-        <td>{{ row.collected_count or row.resources_collected or 0 }} / {{ row.resource_links_seen or row.expected_count or 0 }}</td>
-        <td>
-          {% if row.source_url %}
-          <a href="{{ row.source_url }}" target="_blank" rel="noopener">打开</a>
-          {% elif row.status == 'confirmed' or row.status == 'active' %}
-          <span class="muted">无源站目录，已加入本地索引</span>
-          {% else %}
-          <span class="muted">news 发现，等待确认</span>
-          {% endif %}
-        </td>
-        <td>{{ row.last_crawled_at or '' }}</td>
-        <td>
-          {% if row.status == 'discovered' %}
-          <form method="post" action="/publishers/{{ row.id }}/confirm">
-            <button class="button secondary" type="submit">确认名称</button>
-          </form>
-          {% elif row.source_url %}
-          <form method="post" action="/jobs/publisher/{{ row.id }}">
-            <button class="button ghost" type="submit" {% if task.running %}disabled{% endif %}>重新采集</button>
-          </form>
-          {% endif %}
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="6" class="empty">暂无出版商。</td></tr>
-      {% endfor %}
-      {% if no_publisher_count %}
-      <tr>
-        <td><a href="/resources?publisher={{ '无出版商' | urlencode }}">无出版商</a></td>
-        <td><span class="badge active">已采集完成</span></td>
-        <td>{{ no_publisher_count }} / {{ no_publisher_count }}</td>
-        <td><span class="muted">来自 news 或无法识别出版商的详情页</span></td>
-        <td></td>
-        <td></td>
-      </tr>
-      {% endif %}
-    </tbody>
-  </table>
+  <form class="filters compact-filter" method="get" action="/publishers">
+    <input type="hidden" name="status" value="{{ status }}">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="order" value="{{ order }}">
+    <label>
+      <span class="muted">每页</span>
+      <select name="per_page" onchange="this.form.submit()">
+        {% for option in page_size_options %}
+        <option value="{{ option }}" {% if option == per_page %}selected{% endif %}>{{ '全部' if option == 'all' else option }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
+
+  <div class="table-meta">共 {{ total }} 个出版商，当前第 {{ page }} / {{ page_count }} 页</div>
+  <div class="table-wrap">
+    <table class="nowrap-table">
+      <thead>
+        <tr>
+          <th>名称</th>
+          <th><a class="sort-link" href="/publishers?status={{ status | urlencode }}&per_page={{ per_page }}&sort=status&order={{ next_status_order }}">采集状态</a></th>
+          <th><a class="sort-link" href="/publishers?status={{ status | urlencode }}&per_page={{ per_page }}&sort=progress&order={{ next_progress_order }}">资源进度</a></th>
+          <th>源页面</th>
+          <th>最后采集</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>
+            {% if row.source_url %}
+            <a href="/resources?publisher_url={{ row.source_url | urlencode }}">{{ row.name }}</a>
+            {% else %}
+            <a href="/resources?publisher={{ row.name | urlencode }}">{{ row.name }}</a>
+            {% endif %}
+            {% if row.previous_names %}
+            <span class="muted">（原名：{{ row.previous_names.replace('|', '、') }}）</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if row.status == 'discovered' %}
+            <span class="badge warning">待确认</span>
+            {% elif row.status == 'confirmed' or (row.status == 'active' and not row.source_url) %}
+            <span class="badge active">已确认/无源站目录</span>
+            {% elif row.resource_links_seen and row.collected_count >= row.resource_links_seen %}
+            <span class="badge active">已采集完成</span>
+            {% else %}
+            <span class="badge warning">未采集完</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if not row.source_url %}
+            <span class="muted">无法判定</span>
+            {% else %}
+            {{ row.collected_count or row.resources_collected or 0 }} / {{ row.resource_links_seen or row.expected_count or 0 }}
+            {% endif %}
+          </td>
+          <td>
+            {% if row.source_url %}
+            <a href="{{ row.source_url }}" target="_blank" rel="noopener">打开</a>
+            {% elif row.status == 'confirmed' or row.status == 'active' %}
+            <span class="muted">无源站目录，已加入本地索引</span>
+            {% else %}
+            <span class="muted">news 发现，等待确认</span>
+            {% endif %}
+          </td>
+          <td>{{ row.last_crawled_at or '' }}</td>
+          <td>
+            {% if row.status == 'discovered' %}
+            <form method="post" action="/publishers/{{ row.id }}/confirm">
+              <button class="button secondary" type="submit">确认名称</button>
+            </form>
+            {% elif row.source_url %}
+            <form method="post" action="/jobs/publisher/{{ row.id }}">
+              {% if not row.last_crawled_at and not row.collected_count %}
+              <button class="button" type="submit" {% if task.running %}disabled{% endif %}>开始采集</button>
+              {% elif row.resource_links_seen and row.collected_count < row.resource_links_seen %}
+              <button class="button secondary" type="submit" {% if task.running %}disabled{% endif %}>继续采集</button>
+              {% else %}
+              <button class="button ghost" type="submit" {% if task.running %}disabled{% endif %}>重新采集</button>
+              {% endif %}
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty">暂无出版商。</td></tr>
+        {% endfor %}
+        {% if show_no_publisher %}
+        <tr>
+          <td><a href="/resources?publisher={{ '无出版商' | urlencode }}">无出版商</a></td>
+          <td><span class="badge active">已确认/无源站目录</span></td>
+          <td><span class="muted">无法判定</span></td>
+          <td><span class="muted">来自 news 或无法识别出版商的详情页</span></td>
+          <td></td>
+          <td></td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="pager">
+    {% if page > 1 %}
+    <a class="button ghost" href="/publishers?status={{ status | urlencode }}&per_page={{ per_page }}&sort={{ sort }}&order={{ order }}&page=1">首页</a>
+    <a class="button ghost" href="/publishers?status={{ status | urlencode }}&per_page={{ per_page }}&sort={{ sort }}&order={{ order }}&page={{ page - 1 }}">上一页</a>
+    {% endif %}
+    <form class="page-jump" method="get" action="/publishers">
+      <input type="hidden" name="status" value="{{ status }}">
+      <input type="hidden" name="per_page" value="{{ per_page }}">
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <input type="hidden" name="order" value="{{ order }}">
+      <input type="number" name="page" min="1" max="{{ page_count }}" value="{{ page }}">
+      <button class="button ghost" type="submit">跳转</button>
+    </form>
+    {% if page < page_count %}
+    <a class="button ghost" href="/publishers?status={{ status | urlencode }}&per_page={{ per_page }}&sort={{ sort }}&order={{ order }}&page={{ page + 1 }}">下一页</a>
+    <a class="button ghost" href="/publishers?status={{ status | urlencode }}&per_page={{ per_page }}&sort={{ sort }}&order={{ order }}&page={{ page_count }}">末页</a>
+    {% endif %}
+  </div>
 </section>
 {% endblock %}

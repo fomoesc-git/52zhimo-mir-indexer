@@ -388,37 +388,72 @@ def log_error(run_id: int | None, url: str, stage: str, message: str) -> None:
         )
 
 
-def list_publishers(limit: int = 1000, status: str | None = None) -> list[sqlite3.Row]:
+def publisher_status_where(status: str | None) -> tuple[str, list[object]]:
+    if not status:
+        return "", []
+    if status == "incomplete":
+        return "WHERE p.status IN ('incomplete', 'active') AND p.source_url IS NOT NULL", []
+    if status == "confirmed":
+        return "WHERE p.status = 'confirmed' OR (p.status = 'active' AND p.source_url IS NULL)", []
+    return "WHERE p.status = ?", [status]
+
+
+def count_publishers(status: str | None = None) -> int:
+    where, params = publisher_status_where(status)
+    with connect() as conn:
+        row = conn.execute(f"SELECT COUNT(*) AS c FROM publishers p {where}", params).fetchone()
+    return int(row["c"])
+
+
+def list_publishers(
+    limit: int | None = 1000,
+    status: str | None = None,
+    offset: int = 0,
+    sort: str = "name",
+    order: str = "asc",
+) -> list[sqlite3.Row]:
+    where, params = publisher_status_where(status)
     sql = """
     SELECT
         p.*,
-        COALESCE(COUNT(r.id), 0) AS collected_count
+        COALESCE(COUNT(r.id), 0) AS collected_count,
+        CASE
+            WHEN MAX(COALESCE(p.resource_links_seen, 0), COALESCE(p.expected_count, 0)) > COALESCE(COUNT(r.id), 0)
+            THEN MAX(COALESCE(p.resource_links_seen, 0), COALESCE(p.expected_count, 0)) - COALESCE(COUNT(r.id), 0)
+            ELSE 0
+        END AS missing_count,
+        CASE
+            WHEN p.status = 'discovered' THEN 4
+            WHEN p.status IN ('incomplete', 'active') AND p.source_url IS NOT NULL THEN 3
+            WHEN p.status = 'confirmed' OR (p.status = 'active' AND p.source_url IS NULL) THEN 2
+            ELSE 1
+        END AS status_rank
     FROM publishers p
     LEFT JOIN resources r ON r.publisher_url = p.source_url
         OR (p.source_url IS NULL AND lower(r.publisher) = lower(p.name))
     """
-    params: tuple[object, ...] = ()
-    if status:
-        if status == "incomplete":
-            sql += " WHERE p.status IN ('incomplete', 'active') AND p.source_url IS NOT NULL"
-        elif status == "confirmed":
-            sql += " WHERE p.status = 'confirmed' OR (p.status = 'active' AND p.source_url IS NULL)"
-        else:
-            sql += " WHERE p.status = ?"
-            params = (status,)
+    sql += f" {where}"
+
+    order_direction = "DESC" if order == "desc" else "ASC"
+    if sort == "status":
+        order_by = f"status_rank {order_direction}, p.name COLLATE NOCASE ASC"
+    elif sort == "progress":
+        order_by = (
+            f"missing_count {order_direction}, "
+            f"MAX(COALESCE(p.resource_links_seen, 0), COALESCE(p.expected_count, 0)) {order_direction}, "
+            "p.name COLLATE NOCASE ASC"
+        )
+    else:
+        order_by = f"p.name COLLATE NOCASE {order_direction}, status_rank DESC"
+
     sql += """
     GROUP BY p.id
-    ORDER BY
-        CASE
-            WHEN p.status = 'discovered' THEN 2
-            WHEN p.status IN ('incomplete', 'active') THEN 1
-            WHEN p.status = 'confirmed' THEN 1
-            ELSE 0
-        END DESC,
-        p.name COLLATE NOCASE
-    LIMIT ?
+    ORDER BY __ORDER_BY__
     """
-    params += (limit,)
+    sql = sql.replace("__ORDER_BY__", order_by)
+    if limit is not None:
+        sql += " LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
     with connect() as conn:
         return conn.execute(sql, params).fetchall()
 
@@ -439,6 +474,26 @@ def update_publisher_counts(source_url: str, resource_links_seen: int) -> None:
             (resource_links_seen, resource_links_seen, collected, source_url),
         )
     set_publisher_status(source_url)
+
+
+def existing_resources_for_urls(urls: list[str]) -> dict[str, sqlite3.Row]:
+    if not urls:
+        return {}
+    found: dict[str, sqlite3.Row] = {}
+    with connect() as conn:
+        for start in range(0, len(urls), 900):
+            chunk = urls[start : start + 900]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = conn.execute(
+                f"""
+                SELECT id, source_url, publisher_url
+                FROM resources
+                WHERE source_url IN ({placeholders})
+                """,
+                chunk,
+            ).fetchall()
+            found.update({row["source_url"]: row for row in rows})
+    return found
 
 
 def publisher_by_id(publisher_id: int) -> sqlite3.Row | None:
@@ -573,6 +628,25 @@ def create_daily_update(run_id: int, update_date: str | None = None) -> int:
         return int(cur.lastrowid)
 
 
+def create_daily_update_window(
+    run_id: int,
+    update_date: str,
+    window_started_at: str,
+    window_finished_at: str,
+) -> int:
+    with connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO daily_updates (
+                update_date, run_id, status, window_started_at, window_finished_at
+            )
+            VALUES (?, ?, 'running', ?, ?)
+            """,
+            (update_date, run_id, window_started_at, window_finished_at),
+        )
+        return int(cur.lastrowid)
+
+
 def add_daily_update_item(
     update_id: int,
     resource_url: str,
@@ -590,6 +664,30 @@ def add_daily_update_item(
             """,
             (update_id, resource_url, resource_id, publisher or "无出版商", title, action),
         )
+        conn.execute(
+            "UPDATE resources SET daily_seen_at = CURRENT_TIMESTAMP WHERE source_url = ?",
+            (resource_url,),
+        )
+
+
+def daily_update_seen_urls(urls: list[str]) -> set[str]:
+    if not urls:
+        return set()
+    seen: set[str] = set()
+    with connect() as conn:
+        for start in range(0, len(urls), 900):
+            chunk = urls[start : start + 900]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = conn.execute(
+                f"""
+                SELECT DISTINCT resource_url
+                FROM daily_update_items
+                WHERE resource_url IN ({placeholders})
+                """,
+                chunk,
+            ).fetchall()
+            seen.update(row["resource_url"] for row in rows)
+    return seen
 
 
 def finish_daily_update(update_id: int, status: str) -> None:
@@ -633,7 +731,7 @@ def list_daily_update_items(update_id: int, limit: int = 2000) -> list[sqlite3.R
     with connect() as conn:
         return conn.execute(
             """
-            SELECT dui.*, r.scale, r.file_format, r.paper_format, r.file_size,
+            SELECT dui.*, r.publisher_url, r.scale, r.file_format, r.paper_format, r.file_size,
                    r.total_pages, r.download_url, r.category, r.published_at
             FROM daily_update_items dui
             LEFT JOIN resources r ON r.id = dui.resource_id OR r.source_url = dui.resource_url

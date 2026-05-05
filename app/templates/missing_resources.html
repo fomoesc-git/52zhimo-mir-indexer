@@ -13,9 +13,19 @@
     </div>
   </div>
   <p class="hint">这里列出比例、文件格式、纸张幅面、文件大小、页数任一字段缺失的资源。补采会重新抓详情页，并且不会用空值覆盖已有非空值。</p>
+  <form class="filters compact-filter" method="get" action="/resources/missing">
+    <label>
+      <span class="muted">每页</span>
+      <select name="per_page" onchange="this.form.submit()">
+        {% for option in page_size_options %}
+        <option value="{{ option }}" {% if option == per_page %}selected{% endif %}>{{ '全部' if option == 'all' else option }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
   <div class="table-meta">共 {{ total }} 条，当前第 {{ page }} / {{ page_count }} 页</div>
   <div class="table-wrap">
-    <table>
+    <table class="nowrap-table resource-table">
       <thead>
         <tr>
           <th>标题</th>
@@ -27,8 +37,16 @@
       <tbody>
         {% for row in rows %}
         <tr>
-          <td><a href="{{ row.source_url }}" target="_blank" rel="noopener">{{ row.title }}</a></td>
-          <td>{{ row.publisher or '' }}</td>
+          <td class="allow-wrap title-cell"><a href="{{ row.source_url }}" target="_blank" rel="noopener">{{ row.title }}</a></td>
+          <td>
+            {% if row.publisher %}
+            {% if row.publisher_url %}
+            <a href="/resources?publisher_url={{ row.publisher_url | urlencode }}">{{ row.publisher }}</a>
+            {% else %}
+            <a href="/resources?publisher={{ row.publisher | urlencode }}">{{ row.publisher }}</a>
+            {% endif %}
+            {% endif %}
+          </td>
           <td>
             {% if not row.scale %}<span class="badge failed">比例</span>{% endif %}
             {% if not row.file_format %}<span class="badge failed">格式</span>{% endif %}
@@ -46,16 +64,17 @@
   </div>
   <div class="pager">
     {% if page > 1 %}
-    <a class="button ghost" href="/resources/missing?page=1">首页</a>
-    <a class="button ghost" href="/resources/missing?page={{ page - 1 }}">上一页</a>
+    <a class="button ghost" href="/resources/missing?per_page={{ per_page }}&page=1">首页</a>
+    <a class="button ghost" href="/resources/missing?per_page={{ per_page }}&page={{ page - 1 }}">上一页</a>
     {% endif %}
     <form class="page-jump" method="get" action="/resources/missing">
+      <input type="hidden" name="per_page" value="{{ per_page }}">
       <input type="number" name="page" min="1" max="{{ page_count }}" value="{{ page }}">
       <button class="button ghost" type="submit">跳转</button>
     </form>
-    {% if page * limit < total %}
-    <a class="button ghost" href="/resources/missing?page={{ page + 1 }}">下一页</a>
-    <a class="button ghost" href="/resources/missing?page={{ page_count }}">末页</a>
+    {% if page < page_count %}
+    <a class="button ghost" href="/resources/missing?per_page={{ per_page }}&page={{ page + 1 }}">下一页</a>
+    <a class="button ghost" href="/resources/missing?per_page={{ per_page }}&page={{ page_count }}">末页</a>
     {% endif %}
   </div>
 </section>
