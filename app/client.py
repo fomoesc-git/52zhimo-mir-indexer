@@ -10,10 +10,25 @@ from app.config import get_settings
 
 
 class FetchClient:
-    def __init__(self, pause_checker: Callable[[], None] | None = None) -> None:
+    def __init__(
+        self,
+        pause_checker: Callable[[], None] | None = None,
+        request_delay_seconds: float | None = None,
+        request_jitter_seconds: float | None = None,
+    ) -> None:
         self.settings = get_settings()
         self._last_request = 0.0
         self.pause_checker = pause_checker
+        self.request_delay_seconds = (
+            request_delay_seconds
+            if request_delay_seconds is not None
+            else self.settings.request_delay_seconds
+        )
+        self.request_jitter_seconds = (
+            request_jitter_seconds
+            if request_jitter_seconds is not None
+            else self.settings.request_jitter_seconds
+        )
         self._client = httpx.AsyncClient(
             follow_redirects=True,
             timeout=self.settings.request_timeout_seconds,
@@ -51,7 +66,7 @@ class FetchClient:
     async def _respect_delay(self) -> None:
         loop = asyncio.get_running_loop()
         now = loop.time()
-        base_delay = self.settings.request_delay_seconds + random.uniform(0, self.settings.request_jitter_seconds)
+        base_delay = self.request_delay_seconds + random.uniform(0, self.request_jitter_seconds)
         wait = base_delay - (now - self._last_request)
         if wait > 0:
             await asyncio.sleep(wait)

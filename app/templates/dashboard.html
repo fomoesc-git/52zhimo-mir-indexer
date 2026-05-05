@@ -32,6 +32,12 @@
     <div><span>当前对象</span><strong>{{ task.current_item or '-' }}</strong></div>
     <div><span>当前 URL</span><strong class="url-text">{{ task.current_url or '-' }}</strong></div>
   </div>
+  {% if task.current_kind == 'publisher_queue' %}
+  <p class="hint">
+    队列数量：{{ task.queue_total }}；出版商之间间隔：{{ task.queue_interval_seconds }} 秒；
+    进入资源详情间隔：{{ task.request_delay_seconds or settings.request_delay_seconds }} 秒。
+  </p>
+  {% endif %}
   <div class="grid stats compact">
     <div class="metric"><span>出版商</span><strong>{{ task.publishers_seen }}</strong></div>
     <div class="metric"><span>链接</span><strong>{{ task.resource_links_seen }}</strong></div>

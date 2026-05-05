@@ -30,6 +30,9 @@ class TaskState:
     last_kind: str | None = None
     last_status: str | None = None
     last_message: str | None = None
+    queue_total: int = 0
+    queue_interval_seconds: float = 0
+    request_delay_seconds: float | None = None
 
 
 state = TaskState()
@@ -38,12 +41,23 @@ scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
 DAILY_JOB_ID = "daily-news-check"
 
 
-def start_job(kind: str, publisher_id: int | None = None) -> bool:
-    allowed_kinds = {"full", "publishers", "news", "repair", "publisher_index", "publisher"}
+def start_job(
+    kind: str,
+    publisher_id: int | None = None,
+    publisher_ids: list[int] | None = None,
+    task_interval_seconds: float = 0,
+    request_delay_seconds: float | None = None,
+) -> bool:
+    allowed_kinds = {"full", "publishers", "news", "repair", "publisher_index", "publisher", "publisher_queue"}
     if kind not in allowed_kinds:
         return False
     if kind == "publisher" and not publisher_id:
         return False
+    if kind == "publisher_queue" and not publisher_ids:
+        return False
+    task_interval_seconds = max(0.0, min(float(task_interval_seconds or 0), 3600.0))
+    if request_delay_seconds is not None:
+        request_delay_seconds = max(0.5, min(float(request_delay_seconds), 120.0))
     with lock:
         if state.running:
             return False
@@ -60,21 +74,38 @@ def start_job(kind: str, publisher_id: int | None = None) -> bool:
         state.resources_updated = 0
         state.publishers_created = 0
         state.errors = 0
+        state.queue_total = len(publisher_ids or [])
+        state.queue_interval_seconds = task_interval_seconds
+        state.request_delay_seconds = request_delay_seconds
         state.last_status = None
         state.last_message = None
 
-    thread = threading.Thread(target=_run_job_thread, args=(kind, publisher_id), daemon=True)
+    thread = threading.Thread(
+        target=_run_job_thread,
+        args=(kind, publisher_id, publisher_ids or [], task_interval_seconds, request_delay_seconds),
+        daemon=True,
+    )
     thread.start()
     return True
 
 
-def _run_job_thread(kind: str, publisher_id: int | None = None) -> None:
+def _run_job_thread(
+    kind: str,
+    publisher_id: int | None = None,
+    publisher_ids: list[int] | None = None,
+    task_interval_seconds: float = 0,
+    request_delay_seconds: float | None = None,
+) -> None:
     try:
         stats: CrawlStats = run_job_sync(
             kind,
             progress=update_progress,
             pause_checker=wait_if_paused,
             publisher_id=publisher_id,
+            publisher_ids=publisher_ids,
+            task_interval_seconds=task_interval_seconds,
+            request_delay_seconds=request_delay_seconds,
+            request_jitter_seconds=0 if request_delay_seconds is not None else None,
         )
         message = (
             f"出版商 {stats.publishers_seen}，链接 {stats.resource_links_seen}，"
@@ -94,6 +125,9 @@ def _run_job_thread(kind: str, publisher_id: int | None = None) -> None:
         state.stage = "已结束"
         state.current_item = ""
         state.current_url = ""
+        state.queue_total = 0
+        state.queue_interval_seconds = 0
+        state.request_delay_seconds = None
         state.last_status = status
         state.last_message = message
 

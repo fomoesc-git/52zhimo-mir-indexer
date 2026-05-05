@@ -139,6 +139,23 @@ def start_publisher_crawl(request: Request, publisher_id: int):
     return RedirectResponse("/publishers", status_code=303)
 
 
+@app.post("/jobs/publisher-queue")
+@login_required
+def start_publisher_queue(
+    request: Request,
+    publisher_ids: list[int] = Form(default=[]),
+    task_interval_seconds: float = Form(default=60),
+    request_delay_seconds: float = Form(default=5),
+):
+    start_job(
+        "publisher_queue",
+        publisher_ids=publisher_ids,
+        task_interval_seconds=task_interval_seconds,
+        request_delay_seconds=request_delay_seconds,
+    )
+    return RedirectResponse("/publishers", status_code=303)
+
+
 @app.post("/publishers/{publisher_id}/confirm")
 @login_required
 def confirm_publisher(request: Request, publisher_id: int):

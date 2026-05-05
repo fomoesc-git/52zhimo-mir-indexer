@@ -35,11 +35,27 @@
     </label>
   </form>
 
+  <form id="publisher-queue-form" class="queue-panel" method="post" action="/jobs/publisher-queue" onsubmit="return validatePublisherQueue()">
+    <div class="queue-fields">
+      <label>
+        <span class="muted">出版商之间间隔（秒）</span>
+        <input type="number" name="task_interval_seconds" min="0" max="3600" value="60">
+      </label>
+      <label>
+        <span class="muted">进入资源详情间隔（秒）</span>
+        <input type="number" name="request_delay_seconds" min="1" max="120" step="0.5" value="5">
+      </label>
+      <button class="button secondary" type="submit" {% if task.running %}disabled{% endif %}>按勾选顺序采集</button>
+    </div>
+    <p class="hint">队列会按当前列表从上到下执行；每个出版商仍会跳过已经正确入库的资源，只采新增或归属需要修正的链接。</p>
+  </form>
+
   <div class="table-meta">共 {{ total }} 个出版商，当前第 {{ page }} / {{ page_count }} 页</div>
   <div class="table-wrap">
     <table class="nowrap-table">
       <thead>
         <tr>
+          <th>队列</th>
           <th>名称</th>
           <th><a class="sort-link" href="/publishers?status={{ status | urlencode }}&per_page={{ per_page }}&sort=status&order={{ next_status_order }}">采集状态</a></th>
           <th><a class="sort-link" href="/publishers?status={{ status | urlencode }}&per_page={{ per_page }}&sort=progress&order={{ next_progress_order }}">资源进度</a></th>
@@ -51,6 +67,11 @@
       <tbody>
         {% for row in rows %}
         <tr>
+          <td>
+            {% if row.source_url and row.status != 'discovered' %}
+            <input form="publisher-queue-form" type="checkbox" name="publisher_ids" value="{{ row.id }}">
+            {% endif %}
+          </td>
           <td>
             {% if row.source_url %}
             <a href="/resources?publisher_url={{ row.source_url | urlencode }}">{{ row.name }}</a>
@@ -108,10 +129,11 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="empty">暂无出版商。</td></tr>
+        <tr><td colspan="7" class="empty">暂无出版商。</td></tr>
         {% endfor %}
         {% if show_no_publisher %}
         <tr>
+          <td></td>
           <td><a href="/resources?publisher={{ '无出版商' | urlencode }}">无出版商</a></td>
           <td><span class="badge active">已确认/无源站目录</span></td>
           <td><span class="muted">无法判定</span></td>
@@ -143,4 +165,14 @@
     {% endif %}
   </div>
 </section>
+<script>
+  function validatePublisherQueue() {
+    const checked = document.querySelectorAll("input[name='publisher_ids']:checked");
+    if (!checked.length) {
+      alert("请先勾选至少一个出版商。");
+      return false;
+    }
+    return true;
+  }
+</script>
 {% endblock %}

@@ -71,9 +71,15 @@ class Crawler:
         self,
         progress: Callable[[CrawlStats, str, str, str], None] | None = None,
         pause_checker: Callable[[], None] | None = None,
+        request_delay_seconds: float | None = None,
+        request_jitter_seconds: float | None = None,
     ) -> None:
         self.settings = get_settings()
-        self.client = FetchClient(pause_checker=pause_checker)
+        self.client = FetchClient(
+            pause_checker=pause_checker,
+            request_delay_seconds=request_delay_seconds,
+            request_jitter_seconds=request_jitter_seconds,
+        )
         self.progress = progress
         self.pause_checker = pause_checker
 
@@ -419,6 +425,64 @@ class Crawler:
             finish_run(run_id, status, stats.as_dict(), "; ".join(stats.messages) or None)
         return stats
 
+    async def crawl_publisher_queue(
+        self,
+        publisher_ids: list[int],
+        task_interval_seconds: float = 0,
+    ) -> CrawlStats:
+        run_id = create_run("publisher_queue")
+        stats = CrawlStats()
+        status = "ok"
+        try:
+            publishers: list[PublisherRecord] = []
+            for publisher_id in publisher_ids:
+                row = publisher_by_id(publisher_id)
+                if not row or not row["source_url"] or row["status"] == "discovered":
+                    continue
+                publishers.append(
+                    PublisherRecord(
+                        name=row["name"],
+                        kind=row["kind"],
+                        source_url=row["source_url"],
+                        source_id=row["source_id"],
+                    )
+                )
+
+            stats.publishers_seen = len(publishers)
+            self.report(stats, "出版商队列开始", f"{len(publishers)} 个出版商")
+            for index, publisher in enumerate(publishers, start=1):
+                self.report(
+                    stats,
+                    "出版商队列执行中",
+                    f"{index}/{len(publishers)} {publisher.name}",
+                    publisher.source_url,
+                )
+                await self.crawl_publisher(run_id, publisher, stats)
+                if task_interval_seconds > 0 and index < len(publishers):
+                    await self.sleep_with_pause(task_interval_seconds, stats, "出版商队列间隔等待", publisher.name)
+        except Exception as exc:
+            status = "failed"
+            stats.errors += 1
+            log_error(run_id, self.settings.base_url, "publisher_queue", str(exc))
+            stats.messages.append(str(exc))
+        finally:
+            finish_run(run_id, status, stats.as_dict(), "; ".join(stats.messages) or None)
+        return stats
+
+    async def sleep_with_pause(
+        self,
+        seconds: float,
+        stats: CrawlStats,
+        stage: str,
+        current_item: str = "",
+    ) -> None:
+        remaining = max(0.0, seconds)
+        while remaining > 0:
+            self.report(stats, stage, f"{current_item}，剩余 {int(remaining)} 秒")
+            step = min(1.0, remaining)
+            await asyncio.sleep(step)
+            remaining -= step
+
     async def repair_missing(self) -> CrawlStats:
         run_id = create_run("repair")
         stats = CrawlStats()
@@ -459,8 +523,17 @@ async def run_job(
     progress: Callable[[CrawlStats, str, str, str], None] | None = None,
     pause_checker: Callable[[], None] | None = None,
     publisher_id: int | None = None,
+    publisher_ids: list[int] | None = None,
+    task_interval_seconds: float = 0,
+    request_delay_seconds: float | None = None,
+    request_jitter_seconds: float | None = None,
 ) -> CrawlStats:
-    crawler = Crawler(progress=progress, pause_checker=pause_checker)
+    crawler = Crawler(
+        progress=progress,
+        pause_checker=pause_checker,
+        request_delay_seconds=request_delay_seconds,
+        request_jitter_seconds=request_jitter_seconds,
+    )
     try:
         if kind == "full":
             return await crawler.full_crawl()
@@ -474,6 +547,8 @@ async def run_job(
             return await crawler.refresh_publisher_index()
         if kind == "publisher" and publisher_id:
             return await crawler.crawl_one_publisher(publisher_id)
+        if kind == "publisher_queue" and publisher_ids:
+            return await crawler.crawl_publisher_queue(publisher_ids, task_interval_seconds)
         raise ValueError(f"Unknown crawl kind: {kind}")
     finally:
         await crawler.close()
@@ -484,9 +559,22 @@ def run_job_sync(
     progress: Callable[[CrawlStats, str, str, str], None] | None = None,
     pause_checker: Callable[[], None] | None = None,
     publisher_id: int | None = None,
+    publisher_ids: list[int] | None = None,
+    task_interval_seconds: float = 0,
+    request_delay_seconds: float | None = None,
+    request_jitter_seconds: float | None = None,
 ) -> CrawlStats:
     return asyncio.run(
-        run_job(kind, progress=progress, pause_checker=pause_checker, publisher_id=publisher_id)
+        run_job(
+            kind,
+            progress=progress,
+            pause_checker=pause_checker,
+            publisher_id=publisher_id,
+            publisher_ids=publisher_ids,
+            task_interval_seconds=task_interval_seconds,
+            request_delay_seconds=request_delay_seconds,
+            request_jitter_seconds=request_jitter_seconds,
+        )
     )
 
 
