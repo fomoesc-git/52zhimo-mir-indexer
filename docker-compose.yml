@@ -14,5 +14,8 @@ services:
       USER_AGENT: "52zhimo public index bot; contact: https://52zhimo.cn"
       DAILY_CHECK_HOUR: "3"
       DAILY_CHECK_MINUTE: "15"
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: "admin123456"
+      SECRET_KEY: "please-change-this-secret-key"
     volumes:
       - ./data:/app/data

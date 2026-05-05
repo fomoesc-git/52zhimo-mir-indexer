@@ -20,6 +20,30 @@
   </div>
 </section>
 
+{% if task.running %}
+<section class="panel">
+  <div class="panel-head">
+    <h2>实时采集进度</h2>
+    <span class="badge warning">运行中</span>
+  </div>
+  <div class="progress-grid">
+    <div><span>任务类型</span><strong>{{ task.current_kind }}</strong></div>
+    <div><span>当前阶段</span><strong>{{ task.stage }}</strong></div>
+    <div><span>当前对象</span><strong>{{ task.current_item or '-' }}</strong></div>
+    <div><span>当前 URL</span><strong class="url-text">{{ task.current_url or '-' }}</strong></div>
+  </div>
+  <div class="grid stats compact">
+    <div class="metric"><span>出版商</span><strong>{{ task.publishers_seen }}</strong></div>
+    <div class="metric"><span>链接</span><strong>{{ task.resource_links_seen }}</strong></div>
+    <div class="metric"><span>新增资源</span><strong>{{ task.resources_created }}</strong></div>
+    <div class="metric"><span>更新资源</span><strong>{{ task.resources_updated }}</strong></div>
+    <div class="metric"><span>新增出版商</span><strong>{{ task.publishers_created }}</strong></div>
+    <div class="metric"><span>错误</span><strong>{{ task.errors }}</strong></div>
+  </div>
+  <p class="hint">页面每 5 秒自动刷新一次。全量采集是串行礼貌访问，速度不会很快。</p>
+</section>
+{% endif %}
+
 <section class="panel">
   <div class="panel-head">
     <h1>采集任务</h1>

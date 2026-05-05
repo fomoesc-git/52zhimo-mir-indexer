@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登录 - {{ settings.app_name }}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="login-body">
+  <main class="login-panel">
+    <h1>{{ settings.app_name }}</h1>
+    <p>管理员登录</p>
+    {% if error %}
+    <div class="login-error">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="/login">
+      <label>
+        账号
+        <input type="text" name="username" autocomplete="username" required autofocus>
+      </label>
+      <label>
+        密码
+        <input type="password" name="password" autocomplete="current-password" required>
+      </label>
+      <button class="button" type="submit">登录</button>
+    </form>
+    {% if settings.admin_password == "admin123456" %}
+    <p class="hint danger-text">当前仍是默认密码，请部署时设置 ADMIN_PASSWORD。</p>
+    {% endif %}
+  </main>
+</body>
+</html>

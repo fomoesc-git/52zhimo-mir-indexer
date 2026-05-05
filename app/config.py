@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     user_agent: str = "52zhimo public index bot; contact: https://52zhimo.cn"
     daily_check_hour: int = 3
     daily_check_minute: int = 15
+    admin_username: str = "admin"
+    admin_password: str = "admin123456"
+    secret_key: str = "change-this-secret-key"
 
 
 @lru_cache

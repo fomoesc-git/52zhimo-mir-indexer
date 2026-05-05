@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import math
 from dataclasses import dataclass, field
+from typing import Callable
 
 from app.client import FetchClient
 from app.config import get_settings
@@ -49,15 +50,21 @@ class CrawlStats:
 
 
 class Crawler:
-    def __init__(self) -> None:
+    def __init__(self, progress: Callable[[CrawlStats, str, str, str], None] | None = None) -> None:
         self.settings = get_settings()
         self.client = FetchClient()
+        self.progress = progress
+
+    def report(self, stats: CrawlStats, stage: str, current_item: str = "", current_url: str = "") -> None:
+        if self.progress:
+            self.progress(stats, stage, current_item, current_url)
 
     async def close(self) -> None:
         await self.client.close()
 
     async def crawl_publishers_index(self, run_id: int, stats: CrawlStats) -> list[PublisherRecord]:
         first_url = f"{self.settings.base_url}/publ/1"
+        self.report(stats, "读取出版商目录", "第 1 页", first_url)
         html = await self.client.get_text(first_url)
         total, per_page = parse_publisher_count(html)
         pages = math.ceil(total / per_page) if total and per_page else 1
@@ -68,10 +75,12 @@ class Crawler:
         for page in range(2, pages + 1):
             url = f"{self.settings.base_url}/publ/1-{page}"
             try:
+                self.report(stats, "读取出版商目录", f"第 {page}/{pages} 页", url)
                 page_html = await self.client.get_text(url)
                 publishers.extend(parse_publisher_index(page_html))
             except Exception as exc:
                 stats.errors += 1
+                self.report(stats, "出版商目录失败", f"第 {page}/{pages} 页", url)
                 log_error(run_id, url, "publisher_index", str(exc))
 
         seen: set[str] = set()
@@ -85,18 +94,22 @@ class Crawler:
             if result.created:
                 stats.publishers_created += 1
         stats.publishers_seen += len(unique)
+        self.report(stats, "出版商目录完成", f"发现 {len(unique)} 个出版商", first_url)
         return unique
 
     async def crawl_publisher(self, run_id: int, publisher: PublisherRecord, stats: CrawlStats) -> None:
         try:
+            self.report(stats, "读取出版商页面", publisher.name, publisher.source_url)
             html = await self.client.get_text(publisher.source_url)
             links = parse_publisher_resource_links(html)
             stats.resource_links_seen += len(links)
+            self.report(stats, "出版商资源链接完成", f"{publisher.name}：{len(links)} 个链接", publisher.source_url)
             for url in links:
                 await self.crawl_resource(run_id, url, stats, publisher)
             mark_publisher_crawled(publisher.source_url)
         except Exception as exc:
             stats.errors += 1
+            self.report(stats, "出版商页面失败", publisher.name, publisher.source_url)
             log_error(run_id, publisher.source_url, "publisher_detail", str(exc))
 
     async def crawl_resource(
@@ -108,6 +121,7 @@ class Crawler:
     ) -> None:
         normalized = normalize_url(url)
         try:
+            self.report(stats, "读取资源详情", publisher.name if publisher else "news", normalized)
             html = await self.client.get_text(normalized)
             record = parse_detail(html, normalized)
             if publisher:
@@ -119,6 +133,7 @@ class Crawler:
                 stats.resources_created += 1
             else:
                 stats.resources_updated += 1
+            self.report(stats, "资源详情已保存", record.title, normalized)
 
             for candidate in record.publisher_candidates if publisher is None else []:
                 if candidate:
@@ -127,6 +142,7 @@ class Crawler:
                         stats.publishers_created += 1
         except Exception as exc:
             stats.errors += 1
+            self.report(stats, "资源详情失败", publisher.name if publisher else "news", normalized)
             log_error(run_id, normalized, "resource_detail", str(exc))
 
     async def full_crawl(self) -> CrawlStats:
@@ -134,6 +150,7 @@ class Crawler:
         stats = CrawlStats()
         status = "ok"
         try:
+            self.report(stats, "全量初始化开始")
             publishers = await self.crawl_publishers_index(run_id, stats)
             for publisher in publishers:
                 await self.crawl_publisher(run_id, publisher, stats)
@@ -152,6 +169,10 @@ class Crawler:
         status = "ok"
         try:
             rows = list_publishers(limit=10000, status="active")
+            if not rows:
+                self.report(stats, "暂无出版商，先建立出版商索引")
+                await self.crawl_publishers_index(run_id, stats)
+                rows = list_publishers(limit=10000, status="active")
             publishers = [
                 PublisherRecord(
                     name=row["name"],
@@ -162,7 +183,8 @@ class Crawler:
                 for row in rows
                 if row["source_url"]
             ]
-            stats.publishers_seen = len(publishers)
+            stats.publishers_seen = max(stats.publishers_seen, len(publishers))
+            self.report(stats, "重扫已知出版商开始", f"{len(publishers)} 个出版商")
             for publisher in publishers:
                 await self.crawl_publisher(run_id, publisher, stats)
         except Exception as exc:
@@ -179,10 +201,12 @@ class Crawler:
         stats = CrawlStats()
         status = "ok"
         try:
+            self.report(stats, "检查 news 开始")
             await self.crawl_publishers_index(run_id, stats)
             html = await self.client.get_text(f"{self.settings.base_url}/news/")
             links = parse_news_list(html)
             stats.resource_links_seen = len(links)
+            self.report(stats, "news 列表完成", f"{len(links)} 个最新资源", f"{self.settings.base_url}/news/")
             for url in links:
                 await self.crawl_resource(run_id, url, stats)
         except Exception as exc:
@@ -195,8 +219,11 @@ class Crawler:
         return stats
 
 
-async def run_job(kind: str) -> CrawlStats:
-    crawler = Crawler()
+async def run_job(
+    kind: str,
+    progress: Callable[[CrawlStats, str, str, str], None] | None = None,
+) -> CrawlStats:
+    crawler = Crawler(progress=progress)
     try:
         if kind == "full":
             return await crawler.full_crawl()
@@ -209,5 +236,8 @@ async def run_job(kind: str) -> CrawlStats:
         await crawler.close()
 
 
-def run_job_sync(kind: str) -> CrawlStats:
-    return asyncio.run(run_job(kind))
+def run_job_sync(
+    kind: str,
+    progress: Callable[[CrawlStats, str, str, str], None] | None = None,
+) -> CrawlStats:
+    return asyncio.run(run_job(kind, progress=progress))

@@ -69,6 +69,9 @@ docker run -d \
   -p 8000:8000 \
   -e TZ=Asia/Shanghai \
   -e DATABASE_PATH=/app/data/index.db \
+  -e ADMIN_USERNAME=admin \
+  -e ADMIN_PASSWORD="请改成一个强密码" \
+  -e SECRET_KEY="请改成一串随机字符" \
   -e REQUEST_DELAY_SECONDS=2.5 \
   -e REQUEST_TIMEOUT_SECONDS=45 \
   -e USER_AGENT="52zhimo public index bot; contact: https://52zhimo.cn" \
@@ -102,6 +105,32 @@ gzip -dc 52zhimo-mir-indexer-linux-amd64.tar.gz | docker load
 
 然后使用上面的 `docker run` 命令启动。
 
+默认管理员账号是 `admin`。强烈建议运行容器时设置 `ADMIN_PASSWORD` 和 `SECRET_KEY`，不要使用默认密码。
+
+离线包升级：
+
+```bash
+gzip -dc 52zhimo-mir-indexer.tar.gz | docker load
+docker stop 52zhimo-mir-indexer
+docker rm 52zhimo-mir-indexer
+docker run -d \
+  --name 52zhimo-mir-indexer \
+  --restart unless-stopped \
+  -p 8000:8000 \
+  -e TZ=Asia/Shanghai \
+  -e DATABASE_PATH=/app/data/index.db \
+  -e ADMIN_USERNAME=admin \
+  -e ADMIN_PASSWORD="请改成一个强密码" \
+  -e SECRET_KEY="请改成一串随机字符" \
+  -e REQUEST_DELAY_SECONDS=2.5 \
+  -e REQUEST_TIMEOUT_SECONDS=45 \
+  -e USER_AGENT="52zhimo public index bot; contact: https://52zhimo.cn" \
+  -e DAILY_CHECK_HOUR=3 \
+  -e DAILY_CHECK_MINUTE=15 \
+  -v /www/wwwroot/52zhimo-mir-indexer/data:/app/data \
+  52zhimo-mir-indexer:latest
+```
+
 ### 方案 B：GitHub GHCR
 
 先拉取镜像：
@@ -125,6 +154,9 @@ docker run -d \
   -p 8000:8000 \
   -e TZ=Asia/Shanghai \
   -e DATABASE_PATH=/app/data/index.db \
+  -e ADMIN_USERNAME=admin \
+  -e ADMIN_PASSWORD="请改成一个强密码" \
+  -e SECRET_KEY="请改成一串随机字符" \
   -e REQUEST_DELAY_SECONDS=2.5 \
   -e REQUEST_TIMEOUT_SECONDS=45 \
   -e USER_AGENT="52zhimo public index bot; contact: https://52zhimo.cn" \
@@ -152,6 +184,9 @@ docker run -d \
   -p 8000:8000 \
   -e TZ=Asia/Shanghai \
   -e DATABASE_PATH=/app/data/index.db \
+  -e ADMIN_USERNAME=admin \
+  -e ADMIN_PASSWORD="请改成一个强密码" \
+  -e SECRET_KEY="请改成一串随机字符" \
   -e REQUEST_DELAY_SECONDS=2.5 \
   -e REQUEST_TIMEOUT_SECONDS=45 \
   -e USER_AGENT="52zhimo public index bot; contact: https://52zhimo.cn" \
@@ -211,6 +246,9 @@ python scripts/run_job.py full
 - `USER_AGENT`: 爬虫 UA
 - `DAILY_CHECK_HOUR`: 每日检查小时，默认 `3`
 - `DAILY_CHECK_MINUTE`: 每日检查分钟，默认 `15`
+- `ADMIN_USERNAME`: 管理员账号，默认 `admin`
+- `ADMIN_PASSWORD`: 管理员密码，默认 `admin123456`，部署时务必修改
+- `SECRET_KEY`: 登录 cookie 签名密钥，部署时务必修改
 
 ## 推送到 GitHub
 
