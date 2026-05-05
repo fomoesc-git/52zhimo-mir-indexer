@@ -12,6 +12,67 @@
 - CSV / XLSX 导出
 - Docker / 宝塔面板 / NAS 部署
 
+## 宝塔 Docker 部署
+
+宝塔面板如果只能执行 `docker pull` / `docker run`，建议使用 GitHub 自动构建好的镜像。
+
+先拉取镜像：
+
+```bash
+docker pull ghcr.io/fomoesc-git/52zhimo-mir-indexer:latest
+```
+
+创建数据目录：
+
+```bash
+mkdir -p /www/wwwroot/52zhimo-mir-indexer/data
+```
+
+运行容器：
+
+```bash
+docker run -d \
+  --name 52zhimo-mir-indexer \
+  --restart unless-stopped \
+  -p 8000:8000 \
+  -e TZ=Asia/Shanghai \
+  -e DATABASE_PATH=/app/data/index.db \
+  -e REQUEST_DELAY_SECONDS=2.5 \
+  -e REQUEST_TIMEOUT_SECONDS=45 \
+  -e USER_AGENT="52zhimo public index bot; contact: https://52zhimo.cn" \
+  -e DAILY_CHECK_HOUR=3 \
+  -e DAILY_CHECK_MINUTE=15 \
+  -v /www/wwwroot/52zhimo-mir-indexer/data:/app/data \
+  ghcr.io/fomoesc-git/52zhimo-mir-indexer:latest
+```
+
+访问：
+
+```text
+http://服务器IP:8000
+```
+
+更新镜像：
+
+```bash
+docker pull ghcr.io/fomoesc-git/52zhimo-mir-indexer:latest
+docker stop 52zhimo-mir-indexer
+docker rm 52zhimo-mir-indexer
+docker run -d \
+  --name 52zhimo-mir-indexer \
+  --restart unless-stopped \
+  -p 8000:8000 \
+  -e TZ=Asia/Shanghai \
+  -e DATABASE_PATH=/app/data/index.db \
+  -e REQUEST_DELAY_SECONDS=2.5 \
+  -e REQUEST_TIMEOUT_SECONDS=45 \
+  -e USER_AGENT="52zhimo public index bot; contact: https://52zhimo.cn" \
+  -e DAILY_CHECK_HOUR=3 \
+  -e DAILY_CHECK_MINUTE=15 \
+  -v /www/wwwroot/52zhimo-mir-indexer/data:/app/data \
+  ghcr.io/fomoesc-git/52zhimo-mir-indexer:latest
+```
+
 ## 本地运行
 
 ```bash
@@ -24,7 +85,7 @@ docker compose up --build
 http://服务器IP:8000
 ```
 
-## 宝塔部署
+## 宝塔源码构建部署
 
 1. 在服务器安装 Docker 和 Docker Compose。
 2. 上传本项目到服务器目录，例如 `/www/wwwroot/mir-indexer`。
