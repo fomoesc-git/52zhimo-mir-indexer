@@ -119,13 +119,17 @@ def parse_publisher_index(html_text: str) -> list[PublisherRecord]:
 
 
 def parse_publisher_count(html_text: str) -> tuple[int | None, int | None]:
-    text = clean_text(BeautifulSoup(html_text, "html.parser").get_text(" "))
-    total_match = re.search(r"В категории материалов:\s*(\d+)", text)
-    shown_match = re.search(r"Показано материалов:\s*(\d+)-(\d+)", text)
+    soup = BeautifulSoup(html_text, "html.parser")
+    text = clean_text(soup.get_text(" "))
+    total_match = re.search(r"В категории материалов\s*:\s*(\d+)", text)
+    shown_match = re.search(r"Показано материалов\s*:\s*(\d+)\s*[-–]\s*(\d+)", text)
     total = int(total_match.group(1)) if total_match else None
     per_page = None
     if shown_match:
         per_page = int(shown_match.group(2)) - int(shown_match.group(1)) + 1
+    elif total:
+        current_count = len(parse_publisher_index(html_text))
+        per_page = current_count or None
     return total, per_page
 
 
