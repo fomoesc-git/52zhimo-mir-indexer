@@ -17,6 +17,12 @@ NEWS_CATEGORY_RE = re.compile(r"/news/[^/]+/1-0-\d+/?$")
 PUBL_DETAIL_RE = re.compile(r"/publ/.+/1-1-0-\d+/?$")
 SOURCE_ID_RE = re.compile(r"-(\d+)/?$")
 NEWS_URL_DATE_RE = re.compile(r"/(\d{4}-\d{2}-\d{2})-\d+/?$")
+FILE_SIZE_RE = re.compile(
+    r"(\d+(?:[\s.,]\d+)?)\s*([kmgtкмгт]\s*(?:b|б|байт|bytes?)?|килобайт(?:а|ов)?|кілобайт(?:а|ів)?|"
+    r"мегабайт(?:а|ов)?|мегабайт(?:а|ів)?|гигабайт(?:а|ов)?|гігабайт(?:а|ів)?|"
+    r"терабайт(?:а|ов)?|терабайт(?:а|ів)?)",
+    re.IGNORECASE,
+)
 
 FIELD_MAP = {
     "Издательство": "publisher",
@@ -210,6 +216,7 @@ def parse_detail(html_text: str, source_url: str) -> ResourceRecord:
     description = parse_description_block(soup)
     record.raw_description = description
     apply_description_fields(record, description)
+    normalize_record_fields(record)
     apply_json_ld(record, soup)
     apply_download_link(record, soup)
 
@@ -256,7 +263,7 @@ def apply_description_fields(record: ResourceRecord, description: str) -> None:
         attr = FIELD_MAP.get(label)
         if attr:
             if value:
-                setattr(record, attr, value)
+                setattr(record, attr, normalize_field_value(attr, value))
                 pending_attr = None
             else:
                 pending_attr = attr
@@ -279,6 +286,59 @@ def is_plausible_publisher(value: str) -> bool:
     if not value or value in {"?", "??", "???", "!"}:
         return False
     return bool(re.search(r"[A-Za-zА-Яа-я0-9]", value))
+
+
+def normalize_record_fields(record: ResourceRecord) -> None:
+    record.file_size = normalize_file_size(record.file_size)
+    record.total_pages = normalize_total_pages(record.total_pages)
+
+
+def normalize_field_value(attr: str, value: str) -> str:
+    if attr == "file_size":
+        return normalize_file_size(value) or clean_text(value)
+    if attr == "total_pages":
+        return normalize_total_pages(value) or clean_text(value)
+    return clean_text(value)
+
+
+def normalize_file_size(value: str | None) -> str | None:
+    text = clean_text(value)
+    if not text:
+        return None
+    match = FILE_SIZE_RE.search(text.replace("\u00a0", " "))
+    if not match:
+        return text
+    number = normalize_decimal(match.group(1))
+    unit = normalize_size_unit(match.group(2))
+    return f"{number}{unit}" if unit else number
+
+
+def normalize_decimal(value: str) -> str:
+    compact = re.sub(r"\s+", "", value).replace(",", ".")
+    if "." in compact:
+        compact = compact.rstrip("0").rstrip(".")
+    return compact
+
+
+def normalize_size_unit(value: str) -> str:
+    unit = re.sub(r"[\s.]+", "", value.lower())
+    if unit.startswith(("k", "к", "кило", "кіло")):
+        return "KB"
+    if unit.startswith(("m", "м", "мега")):
+        return "MB"
+    if unit.startswith(("g", "г", "гига", "гіга")):
+        return "GB"
+    if unit.startswith(("t", "т", "тера")):
+        return "TB"
+    return unit.upper()
+
+
+def normalize_total_pages(value: str | None) -> str | None:
+    text = clean_text(value)
+    if not text:
+        return None
+    match = re.search(r"(\d+)", text)
+    return match.group(1) if match else text
 
 
 def apply_json_ld(record: ResourceRecord, soup: BeautifulSoup) -> None:
