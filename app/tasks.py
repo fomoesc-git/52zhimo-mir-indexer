@@ -16,6 +16,7 @@ class TaskState:
     running: bool = False
     paused: bool = False
     current_kind: str | None = None
+    current_publisher_id: int | None = None
     stage: str = "空闲"
     current_item: str = ""
     current_url: str = ""
@@ -35,8 +36,11 @@ lock = threading.Lock()
 scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
 
 
-def start_job(kind: str) -> bool:
-    if kind not in {"full", "publishers", "news", "repair"}:
+def start_job(kind: str, publisher_id: int | None = None) -> bool:
+    allowed_kinds = {"full", "publishers", "news", "repair", "publisher_index", "publisher"}
+    if kind not in allowed_kinds:
+        return False
+    if kind == "publisher" and not publisher_id:
         return False
     with lock:
         if state.running:
@@ -44,6 +48,7 @@ def start_job(kind: str) -> bool:
         state.running = True
         state.paused = False
         state.current_kind = kind
+        state.current_publisher_id = publisher_id
         state.stage = "准备开始"
         state.current_item = ""
         state.current_url = ""
@@ -56,14 +61,19 @@ def start_job(kind: str) -> bool:
         state.last_status = None
         state.last_message = None
 
-    thread = threading.Thread(target=_run_job_thread, args=(kind,), daemon=True)
+    thread = threading.Thread(target=_run_job_thread, args=(kind, publisher_id), daemon=True)
     thread.start()
     return True
 
 
-def _run_job_thread(kind: str) -> None:
+def _run_job_thread(kind: str, publisher_id: int | None = None) -> None:
     try:
-        stats: CrawlStats = run_job_sync(kind, progress=update_progress, pause_checker=wait_if_paused)
+        stats: CrawlStats = run_job_sync(
+            kind,
+            progress=update_progress,
+            pause_checker=wait_if_paused,
+            publisher_id=publisher_id,
+        )
         message = (
             f"出版商 {stats.publishers_seen}，链接 {stats.resource_links_seen}，"
             f"新增资源 {stats.resources_created}，更新资源 {stats.resources_updated}，"
@@ -78,6 +88,7 @@ def _run_job_thread(kind: str) -> None:
         state.paused = False
         state.last_kind = kind
         state.current_kind = None
+        state.current_publisher_id = None
         state.stage = "已结束"
         state.current_item = ""
         state.current_url = ""

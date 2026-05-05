@@ -11,8 +11,13 @@ from app.auth import COOKIE_NAME, create_session_token, is_authenticated, login_
 from app.config import get_settings
 from app.db import init_db
 from app.exporter import export_csv, export_xlsx
+from app.exporter import export_daily_csv, export_daily_xlsx
 from app.repository import (
+    count_no_publisher_resources,
     dashboard_stats,
+    get_daily_update,
+    list_daily_update_items,
+    list_daily_updates,
     list_missing_resources,
     list_publisher_options,
     list_publishers,
@@ -99,10 +104,17 @@ def dashboard(request: Request):
 @app.post("/jobs/start")
 @login_required
 def start_crawl(request: Request, kind: str = Form(...)):
-    if kind not in {"full", "publishers", "news", "repair"}:
+    if kind not in {"full", "publishers", "news", "repair", "publisher_index"}:
         return RedirectResponse("/", status_code=303)
     start_job(kind)
     return RedirectResponse("/", status_code=303)
+
+
+@app.post("/jobs/publisher/{publisher_id}")
+@login_required
+def start_publisher_crawl(request: Request, publisher_id: int):
+    start_job("publisher", publisher_id=publisher_id)
+    return RedirectResponse("/publishers", status_code=303)
 
 
 @app.post("/jobs/pause")
@@ -125,11 +137,18 @@ def resources(
     request: Request,
     q: str | None = Query(default=None),
     publisher: str | None = Query(default=None),
+    publisher_url: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
 ):
     limit = 50
     offset = (page - 1) * limit
-    rows, total = list_resources(q=q, publisher=publisher, limit=limit, offset=offset)
+    rows, total = list_resources(
+        q=q,
+        publisher=publisher,
+        publisher_url=publisher_url,
+        limit=limit,
+        offset=offset,
+    )
     page_count = max((total + limit - 1) // limit, 1)
     return templates.TemplateResponse(
         "resources.html",
@@ -143,6 +162,7 @@ def resources(
             "limit": limit,
             "q": q or "",
             "publisher": publisher or "",
+            "publisher_url": publisher_url or "",
             "publisher_options": list_publisher_options(),
             "task": state,
             "active": "resources",
@@ -182,9 +202,44 @@ def publishers(request: Request, status: str | None = Query(default=None)):
             "request": request,
             "settings": settings,
             "rows": list_publishers(limit=10000, status=status),
+            "no_publisher_count": count_no_publisher_resources(),
             "status": status or "",
             "task": state,
             "active": "publishers",
+        },
+    )
+
+
+@app.get("/updates")
+@login_required
+def updates(request: Request):
+    return templates.TemplateResponse(
+        "updates.html",
+        {
+            "request": request,
+            "settings": settings,
+            "rows": list_daily_updates(),
+            "task": state,
+            "active": "updates",
+        },
+    )
+
+
+@app.get("/updates/{update_id}")
+@login_required
+def update_detail(request: Request, update_id: int):
+    update = get_daily_update(update_id)
+    if not update:
+        return RedirectResponse("/updates", status_code=303)
+    return templates.TemplateResponse(
+        "update_detail.html",
+        {
+            "request": request,
+            "settings": settings,
+            "update": update,
+            "rows": list_daily_update_items(update_id),
+            "task": state,
+            "active": "updates",
         },
     )
 
@@ -205,3 +260,17 @@ def download_export(request: Request, kind: str):
         media_type=media_type,
         filename=Path(path).name,
     )
+
+
+@app.get("/updates/{update_id}/export/{kind}")
+@login_required
+def download_update_export(request: Request, update_id: int, kind: str):
+    if kind == "csv":
+        path = export_daily_csv(update_id)
+        media_type = "text/csv"
+    elif kind == "xlsx":
+        path = export_daily_xlsx(update_id)
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        return RedirectResponse(f"/updates/{update_id}", status_code=303)
+    return FileResponse(path=Path(path), media_type=media_type, filename=Path(path).name)

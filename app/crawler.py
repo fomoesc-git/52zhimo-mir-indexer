@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import math
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Callable
 
 from app.client import FetchClient
@@ -17,13 +18,18 @@ from app.parser import (
     parse_publisher_resource_links,
 )
 from app.repository import (
+    add_daily_update_item,
     create_run,
+    create_daily_update,
+    finish_daily_update,
     finish_run,
     list_publishers,
     log_error,
     mark_publisher_crawled,
     merge_resource,
     missing_resource_urls,
+    publisher_by_id,
+    update_publisher_counts,
     upsert_discovered_publisher,
     upsert_publisher,
     upsert_resource,
@@ -114,7 +120,8 @@ class Crawler:
             stats.resource_links_seen += len(links)
             self.report(stats, "出版商资源链接完成", f"{publisher.name}：{len(links)} 个链接", publisher.source_url)
             for url in links:
-                await self.crawl_resource(run_id, url, stats, publisher)
+                await self.crawl_resource(run_id, url, stats, publisher, merge=True)
+            update_publisher_counts(publisher.source_url, len(links))
             mark_publisher_crawled(publisher.source_url)
         except Exception as exc:
             stats.errors += 1
@@ -136,8 +143,8 @@ class Crawler:
             record = parse_detail(html, normalized)
             if publisher:
                 record.publisher_url = publisher.source_url
-                if not record.publisher:
-                    record.publisher = publisher.name
+                record.publisher = publisher.name
+                record.force_publisher = True
             result = merge_resource(record) if merge else upsert_resource(record)
             if result.created:
                 stats.resources_created += 1
@@ -178,11 +185,19 @@ class Crawler:
         stats = CrawlStats()
         status = "ok"
         try:
-            rows = list_publishers(limit=10000, status="active")
+            rows = [
+                row
+                for row in list_publishers(limit=10000)
+                if row["status"] != "discovered" and row["source_url"]
+            ]
             if not rows:
                 self.report(stats, "暂无出版商，先建立出版商索引")
                 await self.crawl_publishers_index(run_id, stats)
-                rows = list_publishers(limit=10000, status="active")
+                rows = [
+                    row
+                    for row in list_publishers(limit=10000)
+                    if row["status"] != "discovered" and row["source_url"]
+                ]
             publishers = [
                 PublisherRecord(
                     name=row["name"],
@@ -210,19 +225,66 @@ class Crawler:
         run_id = create_run("news")
         stats = CrawlStats()
         status = "ok"
+        update_id: int | None = None
         try:
             self.report(stats, "检查 news 开始")
+            update_id = create_daily_update(run_id)
             await self.crawl_publishers_index(run_id, stats)
             html = await self.client.get_text(f"{self.settings.base_url}/news/")
-            links = parse_news_list(html)
+            today = date.today()
+            links = parse_news_list(html, only_today=True, target_date=today)
             stats.resource_links_seen = len(links)
-            self.report(stats, "news 列表完成", f"{len(links)} 个最新资源", f"{self.settings.base_url}/news/")
+            self.report(stats, "news 列表完成", f"{today.isoformat()}：{len(links)} 个资源", f"{self.settings.base_url}/news/")
             for url in links:
-                await self.crawl_resource(run_id, url, stats)
+                before_created = stats.resources_created
+                normalized = normalize_url(url)
+                await self.crawl_resource(run_id, normalized, stats, merge=True)
+                if update_id:
+                    from app.db import connect
+
+                    with connect() as conn:
+                        row = conn.execute("SELECT * FROM resources WHERE source_url = ?", (normalized,)).fetchone()
+                    if row:
+                        action = "created" if stats.resources_created > before_created else "updated"
+                        add_daily_update_item(
+                            update_id,
+                            row["source_url"],
+                            row["id"],
+                            row["publisher"] or "无出版商",
+                            row["title"],
+                            action,
+                        )
         except Exception as exc:
             status = "failed"
             stats.errors += 1
             log_error(run_id, f"{self.settings.base_url}/news/", "news", str(exc))
+            stats.messages.append(str(exc))
+        finally:
+            finish_run(run_id, status, stats.as_dict(), "; ".join(stats.messages) or None)
+            if update_id:
+                finish_daily_update(update_id, status)
+        return stats
+
+    async def crawl_one_publisher(self, publisher_id: int) -> CrawlStats:
+        run_id = create_run("publisher")
+        stats = CrawlStats()
+        status = "ok"
+        try:
+            row = publisher_by_id(publisher_id)
+            if not row or not row["source_url"]:
+                raise ValueError("出版商不存在或没有源页面")
+            publisher = PublisherRecord(
+                name=row["name"],
+                kind=row["kind"],
+                source_url=row["source_url"],
+                source_id=row["source_id"],
+            )
+            stats.publishers_seen = 1
+            await self.crawl_publisher(run_id, publisher, stats)
+        except Exception as exc:
+            status = "failed"
+            stats.errors += 1
+            log_error(run_id, self.settings.base_url, "publisher", str(exc))
             stats.messages.append(str(exc))
         finally:
             finish_run(run_id, status, stats.as_dict(), "; ".join(stats.messages) or None)
@@ -247,11 +309,27 @@ class Crawler:
             finish_run(run_id, status, stats.as_dict(), "; ".join(stats.messages) or None)
         return stats
 
+    async def refresh_publisher_index(self) -> CrawlStats:
+        run_id = create_run("publisher_index")
+        stats = CrawlStats()
+        status = "ok"
+        try:
+            await self.crawl_publishers_index(run_id, stats)
+        except Exception as exc:
+            status = "failed"
+            stats.errors += 1
+            log_error(run_id, self.settings.base_url, "publisher_index", str(exc))
+            stats.messages.append(str(exc))
+        finally:
+            finish_run(run_id, status, stats.as_dict(), "; ".join(stats.messages) or None)
+        return stats
+
 
 async def run_job(
     kind: str,
     progress: Callable[[CrawlStats, str, str, str], None] | None = None,
     pause_checker: Callable[[], None] | None = None,
+    publisher_id: int | None = None,
 ) -> CrawlStats:
     crawler = Crawler(progress=progress, pause_checker=pause_checker)
     try:
@@ -263,6 +341,10 @@ async def run_job(
             return await crawler.check_news()
         if kind == "repair":
             return await crawler.repair_missing()
+        if kind == "publisher_index":
+            return await crawler.refresh_publisher_index()
+        if kind == "publisher" and publisher_id:
+            return await crawler.crawl_one_publisher(publisher_id)
         raise ValueError(f"Unknown crawl kind: {kind}")
     finally:
         await crawler.close()
@@ -272,5 +354,8 @@ def run_job_sync(
     kind: str,
     progress: Callable[[CrawlStats, str, str, str], None] | None = None,
     pause_checker: Callable[[], None] | None = None,
+    publisher_id: int | None = None,
 ) -> CrawlStats:
-    return asyncio.run(run_job(kind, progress=progress, pause_checker=pause_checker))
+    return asyncio.run(
+        run_job(kind, progress=progress, pause_checker=pause_checker, publisher_id=publisher_id)
+    )

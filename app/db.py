@@ -55,6 +55,37 @@ CREATE INDEX IF NOT EXISTS idx_resources_publisher ON resources(publisher);
 CREATE INDEX IF NOT EXISTS idx_resources_published_at ON resources(published_at);
 CREATE INDEX IF NOT EXISTS idx_resources_source_id ON resources(source_id);
 
+CREATE TABLE IF NOT EXISTS daily_updates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    update_date TEXT NOT NULL,
+    run_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'running',
+    started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    finished_at TEXT,
+    items_seen INTEGER NOT NULL DEFAULT 0,
+    items_created INTEGER NOT NULL DEFAULT 0,
+    items_updated INTEGER NOT NULL DEFAULT 0,
+    notes TEXT,
+    UNIQUE(update_date, run_id)
+);
+
+CREATE TABLE IF NOT EXISTS daily_update_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    update_id INTEGER NOT NULL,
+    resource_url TEXT NOT NULL,
+    resource_id INTEGER,
+    publisher TEXT,
+    title TEXT,
+    action TEXT NOT NULL DEFAULT 'seen',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(update_id, resource_url),
+    FOREIGN KEY(update_id) REFERENCES daily_updates(id),
+    FOREIGN KEY(resource_id) REFERENCES resources(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_daily_updates_date ON daily_updates(update_date);
+CREATE INDEX IF NOT EXISTS idx_daily_items_update ON daily_update_items(update_id);
+
 CREATE TABLE IF NOT EXISTS crawl_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_type TEXT NOT NULL,
@@ -109,6 +140,22 @@ def connect() -> Iterator[sqlite3.Connection]:
 def init_db() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+        migrate(conn)
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    ensure_column(conn, "publishers", "expected_count", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column(conn, "publishers", "resource_links_seen", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column(conn, "publishers", "resources_collected", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column(conn, "publishers", "canonical_key", "TEXT")
+    ensure_column(conn, "publishers", "previous_names", "TEXT")
+    ensure_column(conn, "resources", "daily_seen_at", "TEXT")
+
+
+def ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    columns = [row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def one(sql: str, params: tuple[Any, ...] = ()) -> sqlite3.Row | None:

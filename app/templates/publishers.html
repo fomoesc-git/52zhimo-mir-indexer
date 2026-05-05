@@ -6,8 +6,13 @@
     <h1>出版商索引</h1>
     <div class="actions">
       <a class="button ghost" href="/publishers">全部</a>
-      <a class="button ghost" href="/publishers?status=active">已确认</a>
+      <a class="button ghost" href="/publishers?status=incomplete">未采集完</a>
+      <a class="button ghost" href="/publishers?status=complete">已采集完成</a>
       <a class="button ghost" href="/publishers?status=discovered">待确认</a>
+      <form method="post" action="/jobs/start">
+        <input type="hidden" name="kind" value="publisher_index">
+        <button class="button secondary" type="submit" {% if task.running %}disabled{% endif %}>刷新出版商目录</button>
+      </form>
     </div>
   </div>
 
@@ -15,18 +20,34 @@
     <thead>
       <tr>
         <th>名称</th>
-        <th>类型</th>
-        <th>状态</th>
+        <th>采集状态</th>
+        <th>资源进度</th>
         <th>源页面</th>
         <th>最后采集</th>
+        <th>操作</th>
       </tr>
     </thead>
     <tbody>
       {% for row in rows %}
       <tr>
-        <td>{{ row.name }}</td>
-        <td>{{ row.kind }}</td>
-        <td><span class="badge {{ row.status }}">{{ row.status }}</span></td>
+        <td>
+          {% if row.source_url %}
+          <a href="/resources?publisher_url={{ row.source_url | urlencode }}">{{ row.name }}</a>
+          {% else %}
+          <a href="/resources?publisher={{ row.name | urlencode }}">{{ row.name }}</a>
+          {% endif %}
+          {% if row.previous_names %}
+          <span class="muted">（原名：{{ row.previous_names.replace('|', '、') }}）</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if row.resource_links_seen and row.collected_count >= row.resource_links_seen %}
+          <span class="badge active">已采集完成</span>
+          {% else %}
+          <span class="badge warning">未采集完</span>
+          {% endif %}
+        </td>
+        <td>{{ row.collected_count or row.resources_collected or 0 }} / {{ row.resource_links_seen or row.expected_count or 0 }}</td>
         <td>
           {% if row.source_url %}
           <a href="{{ row.source_url }}" target="_blank" rel="noopener">打开</a>
@@ -35,10 +56,27 @@
           {% endif %}
         </td>
         <td>{{ row.last_crawled_at or '' }}</td>
+        <td>
+          {% if row.source_url %}
+          <form method="post" action="/jobs/publisher/{{ row.id }}">
+            <button class="button ghost" type="submit" {% if task.running %}disabled{% endif %}>采集此出版商</button>
+          </form>
+          {% endif %}
+        </td>
       </tr>
       {% else %}
-      <tr><td colspan="5" class="empty">暂无出版商。</td></tr>
+      <tr><td colspan="6" class="empty">暂无出版商。</td></tr>
       {% endfor %}
+      {% if no_publisher_count %}
+      <tr>
+        <td><a href="/resources?publisher={{ '无出版商' | urlencode }}">无出版商</a></td>
+        <td><span class="badge active">已采集完成</span></td>
+        <td>{{ no_publisher_count }} / {{ no_publisher_count }}</td>
+        <td><span class="muted">来自 news 或无法识别出版商的详情页</span></td>
+        <td></td>
+        <td></td>
+      </tr>
+      {% endif %}
     </tbody>
   </table>
 </section>

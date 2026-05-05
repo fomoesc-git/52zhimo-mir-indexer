@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import json
 import re
+from datetime import date
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
@@ -15,9 +16,11 @@ NEWS_DETAIL_RE = re.compile(r"/news/.+/\d{4}-\d{2}-\d{2}-\d+/?$")
 NEWS_CATEGORY_RE = re.compile(r"/news/[^/]+/1-0-\d+/?$")
 PUBL_DETAIL_RE = re.compile(r"/publ/.+/1-1-0-\d+/?$")
 SOURCE_ID_RE = re.compile(r"-(\d+)/?$")
+NEWS_URL_DATE_RE = re.compile(r"/(\d{4}-\d{2}-\d{2})-\d+/?$")
 
 FIELD_MAP = {
     "Издательство": "publisher",
+    "Издатель": "publisher",
     "Издание": "publisher",
     "Автор": "publisher",
     "Авторы": "publisher",
@@ -41,7 +44,7 @@ FIELD_MAP = {
 }
 
 FIELD_LABEL_RE = re.compile(
-    r"^(Издательство|Издание|Автор|Авторы|Формат файла|Формат листов|Формат листа|"
+    r"^(Издательство|Издатель|Издание|Автор|Авторы|Формат файла|Формат листов|Формат листа|"
     r"Формат страниц|Формат страницы|Формат|Масштаб макета|Масштаб|Размер файла|Размер|"
     r"Листов всего/выкройки|Листов всего/с выкройками|Листов всего|Листов с выкройками|"
     r"Количество страниц|Страниц|Листов)\s*(?::|-|–|—)\s*(.*)$",
@@ -141,11 +144,33 @@ def parse_publisher_resource_links(html_text: str) -> list[str]:
     return links
 
 
-def parse_news_list(html_text: str) -> list[str]:
+def parse_news_list(
+    html_text: str,
+    only_today: bool = False,
+    target_date: date | None = None,
+) -> list[str]:
     soup = BeautifulSoup(html_text, "html.parser")
     container = soup.select_one("#allEntries") or soup
     links: list[str] = []
     seen: set[str] = set()
+
+    if only_today:
+        for article in container.select("article.short"):
+            link = article.select_one("h2 a[href*='/news/']")
+            if not link:
+                continue
+            url = normalize_url(link["href"])
+            if not is_news_detail(url) or url in seen:
+                continue
+            time_node = article.select_one("time[itemprop='datePublished'], time")
+            time_text = clean_text(time_node.get_text(" ")) if time_node else ""
+            url_date = news_date_from_url(url)
+            is_today = time_text.lower() in {"сегодня", "today"}
+            matches_target = bool(target_date and url_date == target_date.isoformat())
+            if is_today or matches_target:
+                seen.add(url)
+                links.append(url)
+        return links
 
     for link in container.select("a[href*='/news/']"):
         url = normalize_url(link["href"])
@@ -154,6 +179,11 @@ def parse_news_list(html_text: str) -> list[str]:
             links.append(url)
 
     return links
+
+
+def news_date_from_url(url: str) -> str | None:
+    match = NEWS_URL_DATE_RE.search(urlparse(normalize_url(url)).path)
+    return match.group(1) if match else None
 
 
 def parse_detail(html_text: str, source_url: str) -> ResourceRecord:
@@ -229,7 +259,7 @@ def apply_description_fields(record: ResourceRecord, description: str) -> None:
 
     if not record.publisher:
         match = re.search(r"[\[(]([^][()]+?)(?:\s+\d{2,4}(?:[-/]\d{1,2})?)?[\])]", record.title)
-        if match:
+        if match and is_plausible_publisher(clean_text(match.group(1))):
             record.publisher = clean_text(match.group(1))
 
 
@@ -239,6 +269,12 @@ def normalize_label(label: str) -> str:
         if compact.lower() == key.lower():
             return key
     return compact
+
+
+def is_plausible_publisher(value: str) -> bool:
+    if not value or value in {"?", "??", "???", "!"}:
+        return False
+    return bool(re.search(r"[A-Za-zА-Яа-я0-9]", value))
 
 
 def apply_json_ld(record: ResourceRecord, soup: BeautifulSoup) -> None:

@@ -8,6 +8,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from app.db import connect, database_path
+from app.repository import get_daily_update, list_daily_update_items
 
 
 HEADERS = [
@@ -105,6 +106,77 @@ def export_xlsx() -> Path:
                 cell.hyperlink = cell.value
                 cell.style = "Hyperlink"
 
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+    wb.save(path)
+    return path
+
+
+def daily_export_rows(update_id: int) -> list[dict[str, str]]:
+    rows = list_daily_update_items(update_id, limit=10000)
+    return [
+        {
+            "source_url": row["resource_url"] or "",
+            "title": row["title"] or "",
+            "title_cn": "",
+            "publisher": row["publisher"] or "无出版商",
+            "scale": row["scale"] or "",
+            "file_format": row["file_format"] or "",
+            "paper_format": row["paper_format"] or "",
+            "file_size": row["file_size"] or "",
+            "total_pages": row["total_pages"] or "",
+            "download_url": row["download_url"] or "",
+            "category": row["category"] or "",
+            "published_at": row["published_at"] or "",
+            "last_crawled_at": "",
+        }
+        for row in rows
+    ]
+
+
+def export_daily_csv(update_id: int) -> Path:
+    update = get_daily_update(update_id)
+    suffix = update["update_date"] if update else str(update_id)
+    path = export_dir() / f"mir-modeley-daily-{suffix}-{update_id}.csv"
+    rows = daily_export_rows(update_id)
+    with path.open("w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=[key for key, _ in HEADERS])
+        writer.writerow({key: label for key, label in HEADERS})
+        writer.writerows(rows)
+    return path
+
+
+def export_daily_xlsx(update_id: int) -> Path:
+    update = get_daily_update(update_id)
+    suffix = update["update_date"] if update else str(update_id)
+    path = export_dir() / f"mir-modeley-daily-{suffix}-{update_id}.xlsx"
+    rows = daily_export_rows(update_id)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "每日更新"
+    ws.append([label for _, label in HEADERS])
+    header_fill = PatternFill("solid", fgColor="1F2937")
+    header_font = Font(color="FFFFFF", bold=True)
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+    for row in rows:
+        ws.append([row[key] for key, _ in HEADERS])
+    for col_idx in range(1, len(HEADERS) + 1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = 24
+    ws.column_dimensions["A"].width = 48
+    ws.column_dimensions["B"].width = 56
+    ws.column_dimensions["J"].width = 48
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+    for col_idx in (1, 10):
+        col = get_column_letter(col_idx)
+        for cell in ws[col][1:]:
+            if cell.value:
+                cell.hyperlink = cell.value
+                cell.style = "Hyperlink"
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = ws.dimensions
     wb.save(path)

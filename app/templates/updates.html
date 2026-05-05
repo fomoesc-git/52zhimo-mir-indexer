@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="panel">
+  <div class="panel-head">
+    <h1>每日更新批次</h1>
+    <form method="post" action="/jobs/start">
+      <input type="hidden" name="kind" value="news">
+      <button class="button" type="submit" {% if task.running %}disabled{% endif %}>立即检查最新 news</button>
+    </form>
+  </div>
+  <p class="hint">每日 news 任务会单独生成一个批次，方便和全站采集结果分开整理、导出和上传。</p>
+  <table>
+    <thead>
+      <tr>
+        <th>批次</th>
+        <th>日期</th>
+        <th>状态</th>
+        <th>资源</th>
+        <th>开始</th>
+        <th>结束</th>
+        <th>导出</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td><a href="/updates/{{ row.id }}">#{{ row.id }}</a></td>
+        <td>{{ row.update_date }}</td>
+        <td><span class="badge {{ row.status }}">{{ row.status }}</span></td>
+        <td>{{ row.items_seen }} 个</td>
+        <td>{{ row.started_at }}</td>
+        <td>{{ row.finished_at or '' }}</td>
+        <td>
+          <a href="/updates/{{ row.id }}/export/csv">CSV</a>
+          <span class="muted">/</span>
+          <a href="/updates/{{ row.id }}/export/xlsx">XLSX</a>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="empty">还没有每日更新批次。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

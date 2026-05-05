@@ -31,3 +31,4 @@ class ResourceRecord:
     crawl_status: str = "ok"
     error: str | None = None
     publisher_candidates: list[str] = field(default_factory=list)
+    force_publisher: bool = False
