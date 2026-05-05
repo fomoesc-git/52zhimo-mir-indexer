@@ -8,6 +8,7 @@
       <a class="button ghost" href="/publishers">全部</a>
       <a class="button ghost" href="/publishers?status=incomplete">未采集完</a>
       <a class="button ghost" href="/publishers?status=complete">已采集完成</a>
+      <a class="button ghost" href="/publishers?status=confirmed">已确认</a>
       <a class="button ghost" href="/publishers?status=discovered">待确认</a>
       <form method="post" action="/jobs/start">
         <input type="hidden" name="kind" value="publisher_index">
@@ -41,7 +42,11 @@
           {% endif %}
         </td>
         <td>
-          {% if row.resource_links_seen and row.collected_count >= row.resource_links_seen %}
+          {% if row.status == 'discovered' %}
+          <span class="badge warning">待确认</span>
+          {% elif row.status == 'confirmed' or (row.status == 'active' and not row.source_url) %}
+          <span class="badge active">已确认</span>
+          {% elif row.resource_links_seen and row.collected_count >= row.resource_links_seen %}
           <span class="badge active">已采集完成</span>
           {% else %}
           <span class="badge warning">未采集完</span>
@@ -51,6 +56,8 @@
         <td>
           {% if row.source_url %}
           <a href="{{ row.source_url }}" target="_blank" rel="noopener">打开</a>
+          {% elif row.status == 'confirmed' or row.status == 'active' %}
+          <span class="muted">无源站目录，已加入本地索引</span>
           {% else %}
           <span class="muted">news 发现，等待确认</span>
           {% endif %}

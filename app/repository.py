@@ -193,7 +193,7 @@ def confirm_discovered_publisher(publisher_id: int) -> bool:
         row = conn.execute("SELECT * FROM publishers WHERE id = ?", (publisher_id,)).fetchone()
         if not row or row["status"] != "discovered":
             return False
-        status = "incomplete" if row["source_url"] else "active"
+        status = "incomplete" if row["source_url"] else "confirmed"
         conn.execute(
             """
             UPDATE publishers
@@ -382,7 +382,9 @@ def list_publishers(limit: int = 1000, status: str | None = None) -> list[sqlite
     params: tuple[object, ...] = ()
     if status:
         if status == "incomplete":
-            sql += " WHERE p.status IN ('incomplete', 'active')"
+            sql += " WHERE p.status IN ('incomplete', 'active') AND p.source_url IS NOT NULL"
+        elif status == "confirmed":
+            sql += " WHERE p.status = 'confirmed' OR (p.status = 'active' AND p.source_url IS NULL)"
         else:
             sql += " WHERE p.status = ?"
             params = (status,)
@@ -392,6 +394,7 @@ def list_publishers(limit: int = 1000, status: str | None = None) -> list[sqlite
         CASE
             WHEN p.status = 'discovered' THEN 2
             WHEN p.status IN ('incomplete', 'active') THEN 1
+            WHEN p.status = 'confirmed' THEN 1
             ELSE 0
         END DESC,
         p.name COLLATE NOCASE
