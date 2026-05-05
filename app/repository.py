@@ -43,6 +43,36 @@ def upsert_publisher(record: PublisherRecord, status: str | None = None) -> Upse
             return UpsertResult(False, int(existing["id"]))
 
         canonical_key = publisher_key(record.name, record.source_url)
+        discovered_named = conn.execute(
+            """
+            SELECT * FROM publishers
+            WHERE lower(name) = lower(?) AND status = 'discovered' AND source_url IS NULL
+            """,
+            (record.name,),
+        ).fetchone()
+        if discovered_named:
+            previous_names = previous_names_with(discovered_named, record.name)
+            conn.execute(
+                """
+                UPDATE publishers
+                SET name = ?, kind = ?, source_url = ?, source_id = ?, status = ?,
+                    canonical_key = ?, previous_names = ?, notes = '已匹配到正式出版商目录',
+                    last_seen_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    record.name,
+                    record.kind,
+                    record.source_url,
+                    record.source_id,
+                    status or "incomplete",
+                    canonical_key,
+                    previous_names,
+                    discovered_named["id"],
+                ),
+            )
+            return UpsertResult(False, int(discovered_named["id"]))
+
         if record.source_id:
             same_source_id = conn.execute(
                 "SELECT * FROM publishers WHERE source_id = ? AND source_id IS NOT NULL",
@@ -156,6 +186,23 @@ def upsert_discovered_publisher(name: str) -> UpsertResult:
             (name,),
         )
         return UpsertResult(True, int(cur.lastrowid))
+
+
+def confirm_discovered_publisher(publisher_id: int) -> bool:
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM publishers WHERE id = ?", (publisher_id,)).fetchone()
+        if not row or row["status"] != "discovered":
+            return False
+        status = "incomplete" if row["source_url"] else "active"
+        conn.execute(
+            """
+            UPDATE publishers
+            SET status = ?, notes = '已手动确认出版商名称', last_seen_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (status, publisher_id),
+        )
+    return True
 
 
 def mark_publisher_crawled(source_url: str) -> None:

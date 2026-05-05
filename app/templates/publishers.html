@@ -57,7 +57,11 @@
         </td>
         <td>{{ row.last_crawled_at or '' }}</td>
         <td>
-          {% if row.source_url %}
+          {% if row.status == 'discovered' %}
+          <form method="post" action="/publishers/{{ row.id }}/confirm">
+            <button class="button secondary" type="submit">确认名称</button>
+          </form>
+          {% elif row.source_url %}
           <form method="post" action="/jobs/publisher/{{ row.id }}">
             <button class="button ghost" type="submit" {% if task.running %}disabled{% endif %}>采集此出版商</button>
           </form>

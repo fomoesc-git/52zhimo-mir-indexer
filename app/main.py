@@ -13,6 +13,7 @@ from app.db import init_db
 from app.exporter import export_csv, export_xlsx
 from app.exporter import export_daily_csv, export_daily_xlsx
 from app.repository import (
+    confirm_discovered_publisher,
     count_no_publisher_resources,
     dashboard_stats,
     get_daily_update,
@@ -115,6 +116,13 @@ def start_crawl(request: Request, kind: str = Form(...)):
 def start_publisher_crawl(request: Request, publisher_id: int):
     start_job("publisher", publisher_id=publisher_id)
     return RedirectResponse("/publishers", status_code=303)
+
+
+@app.post("/publishers/{publisher_id}/confirm")
+@login_required
+def confirm_publisher(request: Request, publisher_id: int):
+    confirm_discovered_publisher(publisher_id)
+    return RedirectResponse("/publishers?status=discovered", status_code=303)
 
 
 @app.post("/jobs/pause")
