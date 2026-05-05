@@ -11,6 +11,9 @@
 - 网页管理界面
 - CSV / XLSX 导出
 - Docker / 宝塔面板 / NAS 部署
+- 管理员登录保护，无开放注册
+- 采集任务进度显示、暂停、恢复
+- 缺字段资源批量补采
 
 ## 宝塔 Docker 部署
 
@@ -242,7 +245,9 @@ python scripts/run_job.py full
 
 - `DATABASE_PATH`: SQLite 路径，默认 `/app/data/index.db`
 - `REQUEST_DELAY_SECONDS`: 请求间隔秒数，默认 `2.5`
+- `REQUEST_JITTER_SECONDS`: 随机额外等待秒数，默认 `1.5`
 - `REQUEST_TIMEOUT_SECONDS`: 请求超时，默认 `45`
+- `REPAIR_BATCH_LIMIT`: 每次缺字段补采的最大资源数，默认 `200`
 - `USER_AGENT`: 爬虫 UA
 - `DAILY_CHECK_HOUR`: 每日检查小时，默认 `3`
 - `DAILY_CHECK_MINUTE`: 每日检查分钟，默认 `15`

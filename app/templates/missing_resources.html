@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="panel">
+  <div class="panel-head">
+    <h1>缺字段资源</h1>
+    <div class="actions">
+      <form method="post" action="/jobs/start">
+        <input type="hidden" name="kind" value="repair">
+        <button class="button secondary" type="submit" {% if task.running %}disabled{% endif %}>批量补采当前缺字段资源</button>
+      </form>
+      <a class="button ghost" href="/resources">返回资源列表</a>
+    </div>
+  </div>
+  <p class="hint">这里列出比例、文件格式、纸张幅面、文件大小、页数任一字段缺失的资源。补采会重新抓详情页，并且不会用空值覆盖已有非空值。</p>
+  <div class="table-meta">共 {{ total }} 条，当前第 {{ page }} / {{ page_count }} 页</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>标题</th>
+          <th>出版商</th>
+          <th>缺失字段</th>
+          <th>最后采集</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td><a href="{{ row.source_url }}" target="_blank" rel="noopener">{{ row.title }}</a></td>
+          <td>{{ row.publisher or '' }}</td>
+          <td>
+            {% if not row.scale %}<span class="badge failed">比例</span>{% endif %}
+            {% if not row.file_format %}<span class="badge failed">格式</span>{% endif %}
+            {% if not row.paper_format %}<span class="badge failed">幅面</span>{% endif %}
+            {% if not row.file_size %}<span class="badge failed">大小</span>{% endif %}
+            {% if not row.total_pages %}<span class="badge failed">页数</span>{% endif %}
+          </td>
+          <td>{{ row.last_crawled_at or '' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="empty">没有缺字段资源。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="pager">
+    {% if page > 1 %}
+    <a class="button ghost" href="/resources/missing?page=1">首页</a>
+    <a class="button ghost" href="/resources/missing?page={{ page - 1 }}">上一页</a>
+    {% endif %}
+    <form class="page-jump" method="get" action="/resources/missing">
+      <input type="number" name="page" min="1" max="{{ page_count }}" value="{{ page }}">
+      <button class="button ghost" type="submit">跳转</button>
+    </form>
+    {% if page * limit < total %}
+    <a class="button ghost" href="/resources/missing?page={{ page + 1 }}">下一页</a>
+    <a class="button ghost" href="/resources/missing?page={{ page_count }}">末页</a>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

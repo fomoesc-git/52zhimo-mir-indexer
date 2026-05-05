@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from dataclasses import dataclass
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -13,6 +14,7 @@ from app.crawler import CrawlStats, run_job_sync
 @dataclass
 class TaskState:
     running: bool = False
+    paused: bool = False
     current_kind: str | None = None
     stage: str = "空闲"
     current_item: str = ""
@@ -34,10 +36,13 @@ scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
 
 
 def start_job(kind: str) -> bool:
+    if kind not in {"full", "publishers", "news", "repair"}:
+        return False
     with lock:
         if state.running:
             return False
         state.running = True
+        state.paused = False
         state.current_kind = kind
         state.stage = "准备开始"
         state.current_item = ""
@@ -58,7 +63,7 @@ def start_job(kind: str) -> bool:
 
 def _run_job_thread(kind: str) -> None:
     try:
-        stats: CrawlStats = run_job_sync(kind, progress=update_progress)
+        stats: CrawlStats = run_job_sync(kind, progress=update_progress, pause_checker=wait_if_paused)
         message = (
             f"出版商 {stats.publishers_seen}，链接 {stats.resource_links_seen}，"
             f"新增资源 {stats.resources_created}，更新资源 {stats.resources_updated}，"
@@ -70,6 +75,7 @@ def _run_job_thread(kind: str) -> None:
         message = str(exc)
     with lock:
         state.running = False
+        state.paused = False
         state.last_kind = kind
         state.current_kind = None
         state.stage = "已结束"
@@ -90,6 +96,34 @@ def update_progress(stats: CrawlStats, stage: str, current_item: str = "", curre
         state.resources_updated = stats.resources_updated
         state.publishers_created = stats.publishers_created
         state.errors = stats.errors
+
+
+def pause_job() -> bool:
+    with lock:
+        if not state.running:
+            return False
+        state.paused = True
+        state.stage = "已暂停，等待恢复"
+        return True
+
+
+def resume_job() -> bool:
+    with lock:
+        if not state.running:
+            return False
+        state.paused = False
+        state.stage = "恢复中"
+        return True
+
+
+def wait_if_paused() -> None:
+    while True:
+        with lock:
+            paused = state.paused
+            running = state.running
+        if not running or not paused:
+            return
+        time.sleep(1)
 
 
 def ensure_scheduler() -> None:

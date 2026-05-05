@@ -11,8 +11,15 @@ from app.auth import COOKIE_NAME, create_session_token, is_authenticated, login_
 from app.config import get_settings
 from app.db import init_db
 from app.exporter import export_csv, export_xlsx
-from app.repository import dashboard_stats, list_publishers, list_resources, recent_runs
-from app.tasks import ensure_scheduler, start_job, state
+from app.repository import (
+    dashboard_stats,
+    list_missing_resources,
+    list_publisher_options,
+    list_publishers,
+    list_resources,
+    recent_runs,
+)
+from app.tasks import ensure_scheduler, pause_job, resume_job, start_job, state
 
 
 settings = get_settings()
@@ -92,9 +99,23 @@ def dashboard(request: Request):
 @app.post("/jobs/start")
 @login_required
 def start_crawl(request: Request, kind: str = Form(...)):
-    if kind not in {"full", "publishers", "news"}:
+    if kind not in {"full", "publishers", "news", "repair"}:
         return RedirectResponse("/", status_code=303)
     start_job(kind)
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/jobs/pause")
+@login_required
+def pause_crawl(request: Request):
+    pause_job()
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/jobs/resume")
+@login_required
+def resume_crawl(request: Request):
+    resume_job()
     return RedirectResponse("/", status_code=303)
 
 
@@ -109,6 +130,7 @@ def resources(
     limit = 50
     offset = (page - 1) * limit
     rows, total = list_resources(q=q, publisher=publisher, limit=limit, offset=offset)
+    page_count = max((total + limit - 1) // limit, 1)
     return templates.TemplateResponse(
         "resources.html",
         {
@@ -117,9 +139,34 @@ def resources(
             "rows": rows,
             "total": total,
             "page": page,
+            "page_count": page_count,
             "limit": limit,
             "q": q or "",
             "publisher": publisher or "",
+            "publisher_options": list_publisher_options(),
+            "task": state,
+            "active": "resources",
+        },
+    )
+
+
+@app.get("/resources/missing")
+@login_required
+def missing_resources(request: Request, page: int = Query(default=1, ge=1)):
+    limit = 100
+    offset = (page - 1) * limit
+    rows, total = list_missing_resources(limit=limit, offset=offset)
+    page_count = max((total + limit - 1) // limit, 1)
+    return templates.TemplateResponse(
+        "missing_resources.html",
+        {
+            "request": request,
+            "settings": settings,
+            "rows": rows,
+            "total": total,
+            "page": page,
+            "page_count": page_count,
+            "limit": limit,
             "task": state,
             "active": "resources",
         },

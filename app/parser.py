@@ -20,16 +20,33 @@ FIELD_MAP = {
     "Издательство": "publisher",
     "Издание": "publisher",
     "Автор": "publisher",
+    "Авторы": "publisher",
     "Формат файла": "file_format",
+    "Формат": "file_format",
     "Масштаб макета": "scale",
     "Масштаб": "scale",
     "Формат листа": "paper_format",
+    "Формат листов": "paper_format",
+    "Формат страницы": "paper_format",
+    "Формат страниц": "paper_format",
     "Размер файла": "file_size",
+    "Размер": "file_size",
     "Листов всего/выкройки": "total_pages",
+    "Листов всего/с выкройками": "total_pages",
+    "Листов всего": "total_pages",
+    "Листов с выкройками": "total_pages",
     "Количество страниц": "total_pages",
     "Страниц": "total_pages",
     "Листов": "total_pages",
 }
+
+FIELD_LABEL_RE = re.compile(
+    r"^(Издательство|Издание|Автор|Авторы|Формат файла|Формат листов|Формат листа|"
+    r"Формат страниц|Формат страницы|Формат|Масштаб макета|Масштаб|Размер файла|Размер|"
+    r"Листов всего/выкройки|Листов всего/с выкройками|Листов всего|Листов с выкройками|"
+    r"Количество страниц|Страниц|Листов)\s*(?::|-|–|—)\s*(.*)$",
+    re.IGNORECASE,
+)
 
 
 def normalize_url(url: str) -> str:
@@ -192,20 +209,36 @@ def parse_description_block(soup: BeautifulSoup) -> str:
 
 def apply_description_fields(record: ResourceRecord, description: str) -> None:
     lines = [clean_text(line) for line in description.split("\n") if clean_text(line)]
+    pending_attr: str | None = None
     for line in lines:
-        if ":" not in line:
+        match = FIELD_LABEL_RE.match(line)
+        if not match:
+            if pending_attr and line:
+                setattr(record, pending_attr, line)
+                pending_attr = None
             continue
-        label, value = line.split(":", 1)
-        label = clean_text(label)
-        value = clean_text(value)
+        label = normalize_label(match.group(1))
+        value = clean_text(match.group(2))
         attr = FIELD_MAP.get(label)
-        if attr and value:
-            setattr(record, attr, value)
+        if attr:
+            if value:
+                setattr(record, attr, value)
+                pending_attr = None
+            else:
+                pending_attr = attr
 
     if not record.publisher:
         match = re.search(r"[\[(]([^][()]+?)(?:\s+\d{2,4}(?:[-/]\d{1,2})?)?[\])]", record.title)
         if match:
             record.publisher = clean_text(match.group(1))
+
+
+def normalize_label(label: str) -> str:
+    compact = clean_text(label)
+    for key in FIELD_MAP:
+        if compact.lower() == key.lower():
+            return key
+    return compact
 
 
 def apply_json_ld(record: ResourceRecord, soup: BeautifulSoup) -> None:

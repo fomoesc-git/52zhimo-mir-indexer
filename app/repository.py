@@ -138,6 +138,55 @@ def upsert_resource(record: ResourceRecord) -> UpsertResult:
         return UpsertResult(True, int(cur.lastrowid))
 
 
+def merge_resource(record: ResourceRecord) -> UpsertResult:
+    with connect() as conn:
+        existing = conn.execute(
+            "SELECT * FROM resources WHERE source_url = ?",
+            (record.source_url,),
+        ).fetchone()
+        if not existing:
+            return upsert_resource(record)
+
+        fields = [
+            "source_id",
+            "title",
+            "publisher",
+            "publisher_url",
+            "scale",
+            "file_format",
+            "paper_format",
+            "file_size",
+            "total_pages",
+            "download_url",
+            "category",
+            "published_at",
+            "last_modified_at",
+            "raw_description",
+            "crawl_status",
+            "error",
+        ]
+        values = {}
+        for field in fields:
+            current = existing[field]
+            incoming = getattr(record, field)
+            values[field] = incoming if incoming not in (None, "") else current
+
+        conn.execute(
+            """
+            UPDATE resources
+            SET source_id = ?, title = ?, publisher = ?, publisher_url = ?,
+                scale = ?, file_format = ?, paper_format = ?, file_size = ?,
+                total_pages = ?, download_url = ?, category = ?,
+                published_at = ?, last_modified_at = ?, raw_description = ?,
+                crawl_status = ?, error = ?, last_seen_at = CURRENT_TIMESTAMP,
+                last_crawled_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            tuple(values[field] for field in fields) + (existing["id"],),
+        )
+        return UpsertResult(False, int(existing["id"]))
+
+
 def create_run(run_type: str) -> int:
     with connect() as conn:
         cur = conn.execute(
@@ -226,6 +275,63 @@ def list_resources(
             params + [limit, offset],
         ).fetchall()
     return rows, int(total)
+
+
+def missing_fields_clause() -> str:
+    return """
+    (
+        scale IS NULL OR scale = '' OR
+        file_format IS NULL OR file_format = '' OR
+        paper_format IS NULL OR paper_format = '' OR
+        file_size IS NULL OR file_size = '' OR
+        total_pages IS NULL OR total_pages = ''
+    )
+    """
+
+
+def list_missing_resources(limit: int = 100, offset: int = 0) -> tuple[list[sqlite3.Row], int]:
+    clause = missing_fields_clause()
+    with connect() as conn:
+        total = conn.execute(f"SELECT COUNT(*) AS c FROM resources WHERE {clause}").fetchone()["c"]
+        rows = conn.execute(
+            f"""
+            SELECT * FROM resources
+            WHERE {clause}
+            ORDER BY last_crawled_at ASC, id ASC
+            LIMIT ? OFFSET ?
+            """,
+            (limit, offset),
+        ).fetchall()
+    return rows, int(total)
+
+
+def missing_resource_urls(limit: int) -> list[str]:
+    clause = missing_fields_clause()
+    with connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT source_url FROM resources
+            WHERE {clause}
+            ORDER BY last_crawled_at ASC, id ASC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [row["source_url"] for row in rows]
+
+
+def list_publisher_options() -> list[str]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT publisher, COUNT(*) AS c
+            FROM resources
+            WHERE publisher IS NOT NULL AND publisher != ''
+            GROUP BY publisher
+            ORDER BY publisher COLLATE NOCASE
+            """
+        ).fetchall()
+    return [row["publisher"] for row in rows]
 
 
 def dashboard_stats() -> dict[str, int]:

@@ -12,12 +12,18 @@
 
   <form class="filters" method="get" action="/resources">
     <input type="search" name="q" value="{{ q }}" placeholder="搜索标题、出版商、分类">
-    <input type="text" name="publisher" value="{{ publisher }}" placeholder="出版商精确筛选">
+    <select name="publisher">
+      <option value="">全部出版商</option>
+      {% for option in publisher_options %}
+      <option value="{{ option }}" {% if option == publisher %}selected{% endif %}>{{ option }}</option>
+      {% endfor %}
+    </select>
     <button class="button" type="submit">筛选</button>
     <a class="button ghost" href="/resources">清空</a>
+    <a class="button ghost" href="/resources/missing">查看缺字段</a>
   </form>
 
-  <div class="table-meta">共 {{ total }} 条，当前第 {{ page }} 页</div>
+  <div class="table-meta">共 {{ total }} 条，当前第 {{ page }} / {{ page_count }} 页</div>
   <div class="table-wrap">
     <table>
       <thead>
@@ -60,10 +66,18 @@
 
   <div class="pager">
     {% if page > 1 %}
+    <a class="button ghost" href="/resources?q={{ q }}&publisher={{ publisher }}&page=1">首页</a>
     <a class="button ghost" href="/resources?q={{ q }}&publisher={{ publisher }}&page={{ page - 1 }}">上一页</a>
     {% endif %}
+    <form class="page-jump" method="get" action="/resources">
+      <input type="hidden" name="q" value="{{ q }}">
+      <input type="hidden" name="publisher" value="{{ publisher }}">
+      <input type="number" name="page" min="1" max="{{ page_count }}" value="{{ page }}">
+      <button class="button ghost" type="submit">跳转</button>
+    </form>
     {% if page * limit < total %}
     <a class="button ghost" href="/resources?q={{ q }}&publisher={{ publisher }}&page={{ page + 1 }}">下一页</a>
+    <a class="button ghost" href="/resources?q={{ q }}&publisher={{ publisher }}&page={{ page_count }}">末页</a>
     {% endif %}
   </div>
 </section>

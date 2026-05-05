@@ -240,6 +240,16 @@ input {
   font: inherit;
 }
 
+select {
+  min-height: 36px;
+  min-width: 260px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  font: inherit;
+}
+
 input[type="search"] {
   min-width: 320px;
 }
@@ -304,7 +314,18 @@ th {
 }
 
 .pager {
+  align-items: center;
   margin-top: 14px;
+}
+
+.page-jump {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.page-jump input {
+  width: 88px;
 }
 
 .progress-grid {
@@ -393,7 +414,8 @@ th {
   }
 
   input,
-  input[type="search"] {
+  input[type="search"],
+  select {
     width: 100%;
     min-width: 0;
   }

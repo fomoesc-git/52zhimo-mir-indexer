@@ -22,6 +22,8 @@ from app.repository import (
     list_publishers,
     log_error,
     mark_publisher_crawled,
+    merge_resource,
+    missing_resource_urls,
     upsert_discovered_publisher,
     upsert_publisher,
     upsert_resource,
@@ -50,12 +52,19 @@ class CrawlStats:
 
 
 class Crawler:
-    def __init__(self, progress: Callable[[CrawlStats, str, str, str], None] | None = None) -> None:
+    def __init__(
+        self,
+        progress: Callable[[CrawlStats, str, str, str], None] | None = None,
+        pause_checker: Callable[[], None] | None = None,
+    ) -> None:
         self.settings = get_settings()
-        self.client = FetchClient()
+        self.client = FetchClient(pause_checker=pause_checker)
         self.progress = progress
+        self.pause_checker = pause_checker
 
     def report(self, stats: CrawlStats, stage: str, current_item: str = "", current_url: str = "") -> None:
+        if self.pause_checker:
+            self.pause_checker()
         if self.progress:
             self.progress(stats, stage, current_item, current_url)
 
@@ -118,6 +127,7 @@ class Crawler:
         url: str,
         stats: CrawlStats,
         publisher: PublisherRecord | None = None,
+        merge: bool = False,
     ) -> None:
         normalized = normalize_url(url)
         try:
@@ -128,7 +138,7 @@ class Crawler:
                 record.publisher_url = publisher.source_url
                 if not record.publisher:
                     record.publisher = publisher.name
-            result = upsert_resource(record)
+            result = merge_resource(record) if merge else upsert_resource(record)
             if result.created:
                 stats.resources_created += 1
             else:
@@ -218,12 +228,32 @@ class Crawler:
             finish_run(run_id, status, stats.as_dict(), "; ".join(stats.messages) or None)
         return stats
 
+    async def repair_missing(self) -> CrawlStats:
+        run_id = create_run("repair")
+        stats = CrawlStats()
+        status = "ok"
+        try:
+            urls = missing_resource_urls(self.settings.repair_batch_limit)
+            stats.resource_links_seen = len(urls)
+            self.report(stats, "缺字段补采开始", f"{len(urls)} 个资源")
+            for url in urls:
+                await self.crawl_resource(run_id, url, stats, merge=True)
+        except Exception as exc:
+            status = "failed"
+            stats.errors += 1
+            log_error(run_id, self.settings.base_url, "repair_missing", str(exc))
+            stats.messages.append(str(exc))
+        finally:
+            finish_run(run_id, status, stats.as_dict(), "; ".join(stats.messages) or None)
+        return stats
+
 
 async def run_job(
     kind: str,
     progress: Callable[[CrawlStats, str, str, str], None] | None = None,
+    pause_checker: Callable[[], None] | None = None,
 ) -> CrawlStats:
-    crawler = Crawler(progress=progress)
+    crawler = Crawler(progress=progress, pause_checker=pause_checker)
     try:
         if kind == "full":
             return await crawler.full_crawl()
@@ -231,6 +261,8 @@ async def run_job(
             return await crawler.crawl_known_publishers()
         if kind == "news":
             return await crawler.check_news()
+        if kind == "repair":
+            return await crawler.repair_missing()
         raise ValueError(f"Unknown crawl kind: {kind}")
     finally:
         await crawler.close()
@@ -239,5 +271,6 @@ async def run_job(
 def run_job_sync(
     kind: str,
     progress: Callable[[CrawlStats, str, str, str], None] | None = None,
+    pause_checker: Callable[[], None] | None = None,
 ) -> CrawlStats:
-    return asyncio.run(run_job(kind, progress=progress))
+    return asyncio.run(run_job(kind, progress=progress, pause_checker=pause_checker))

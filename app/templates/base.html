@@ -18,6 +18,7 @@
     <nav>
       <a class="{{ 'active' if active == 'dashboard' else '' }}" href="/">仪表盘</a>
       <a class="{{ 'active' if active == 'resources' else '' }}" href="/resources">资源</a>
+      <a class="{{ 'active' if active == 'missing' else '' }}" href="/resources/missing">缺字段</a>
       <a class="{{ 'active' if active == 'publishers' else '' }}" href="/publishers">出版商</a>
       <form method="post" action="/logout" class="logout-form">
         <button type="submit">退出</button>

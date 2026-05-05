@@ -24,7 +24,7 @@
 <section class="panel">
   <div class="panel-head">
     <h2>实时采集进度</h2>
-    <span class="badge warning">运行中</span>
+    <span class="badge warning">{{ '已暂停' if task.paused else '运行中' }}</span>
   </div>
   <div class="progress-grid">
     <div><span>任务类型</span><strong>{{ task.current_kind }}</strong></div>
@@ -41,6 +41,13 @@
     <div class="metric"><span>错误</span><strong>{{ task.errors }}</strong></div>
   </div>
   <p class="hint">页面每 5 秒自动刷新一次。全量采集是串行礼貌访问，速度不会很快。</p>
+  <div class="actions">
+    {% if task.paused %}
+    <form method="post" action="/jobs/resume"><button class="button" type="submit">恢复任务</button></form>
+    {% else %}
+    <form method="post" action="/jobs/pause"><button class="button secondary" type="submit">暂停任务</button></form>
+    {% endif %}
+  </div>
 </section>
 {% endif %}
 
@@ -65,8 +72,12 @@
       <input type="hidden" name="kind" value="full">
       <button class="button danger" type="submit" {% if task.running %}disabled{% endif %}>全量初始化</button>
     </form>
+    <form method="post" action="/jobs/start">
+      <input type="hidden" name="kind" value="repair">
+      <button class="button secondary" type="submit" {% if task.running %}disabled{% endif %}>补采缺字段资源</button>
+    </form>
   </div>
-  <p class="hint">全量初始化会从出版商目录开始串行采集，首次运行可能需要数小时；默认请求间隔 {{ settings.request_delay_seconds }} 秒。</p>
+  <p class="hint">全量初始化会从出版商目录开始串行采集，首次运行可能需要数小时；默认请求间隔 {{ settings.request_delay_seconds }} 秒，并加入随机等待，减少对源站压力。</p>
 </section>
 
 <section class="panel">

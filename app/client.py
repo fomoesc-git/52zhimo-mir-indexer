@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import random
+from typing import Callable
 
 import httpx
 
@@ -8,9 +10,10 @@ from app.config import get_settings
 
 
 class FetchClient:
-    def __init__(self) -> None:
+    def __init__(self, pause_checker: Callable[[], None] | None = None) -> None:
         self.settings = get_settings()
         self._last_request = 0.0
+        self.pause_checker = pause_checker
         self._client = httpx.AsyncClient(
             follow_redirects=True,
             timeout=self.settings.request_timeout_seconds,
@@ -26,11 +29,17 @@ class FetchClient:
         await self._client.aclose()
 
     async def get_text(self, url: str) -> str:
+        if self.pause_checker:
+            self.pause_checker()
         await self._respect_delay()
+        if self.pause_checker:
+            self.pause_checker()
         last_error: Exception | None = None
         for attempt in range(3):
             try:
                 response = await self._client.get(url)
+                if response.status_code in {403, 429, 500, 502, 503, 504}:
+                    await asyncio.sleep(10 + attempt * 20)
                 response.raise_for_status()
                 response.encoding = response.encoding or "utf-8"
                 return response.text
@@ -42,7 +51,8 @@ class FetchClient:
     async def _respect_delay(self) -> None:
         loop = asyncio.get_running_loop()
         now = loop.time()
-        wait = self.settings.request_delay_seconds - (now - self._last_request)
+        base_delay = self.settings.request_delay_seconds + random.uniform(0, self.settings.request_jitter_seconds)
+        wait = base_delay - (now - self._last_request)
         if wait > 0:
             await asyncio.sleep(wait)
         self._last_request = loop.time()

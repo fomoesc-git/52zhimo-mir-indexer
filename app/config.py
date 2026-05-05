@@ -10,7 +10,9 @@ class Settings(BaseSettings):
     base_url: str = "https://mir-modeley.com"
     database_path: str = "/app/data/index.db"
     request_delay_seconds: float = 2.5
+    request_jitter_seconds: float = 1.5
     request_timeout_seconds: float = 45
+    repair_batch_limit: int = 200
     user_agent: str = "52zhimo public index bot; contact: https://52zhimo.cn"
     daily_check_hour: int = 3
     daily_check_minute: int = 15
