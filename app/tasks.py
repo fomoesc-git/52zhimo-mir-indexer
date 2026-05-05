@@ -9,6 +9,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.config import get_settings
 from app.crawler import CrawlStats, run_job_sync
+from app.repository import get_state_value, set_state_value
 
 
 @dataclass
@@ -34,6 +35,7 @@ class TaskState:
 state = TaskState()
 lock = threading.Lock()
 scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
+DAILY_JOB_ID = "daily-news-check"
 
 
 def start_job(kind: str, publisher_id: int | None = None) -> bool:
@@ -138,14 +140,70 @@ def wait_if_paused() -> None:
 
 
 def ensure_scheduler() -> None:
-    if scheduler.running:
-        return
+    if not scheduler.running:
+        scheduler.start()
+    configure_daily_news_job()
+
+
+def default_daily_schedule() -> dict[str, int | bool]:
     settings = get_settings()
+    return {
+        "enabled": True,
+        "hour": settings.daily_check_hour,
+        "minute": settings.daily_check_minute,
+    }
+
+
+def get_daily_schedule() -> dict[str, int | bool | str | None]:
+    defaults = default_daily_schedule()
+    enabled = get_state_value("daily_news_enabled")
+    hour = get_state_value("daily_news_hour")
+    minute = get_state_value("daily_news_minute")
+    schedule = {
+        "enabled": parse_bool(enabled, bool(defaults["enabled"])),
+        "hour": parse_int(hour, int(defaults["hour"]), 0, 23),
+        "minute": parse_int(minute, int(defaults["minute"]), 0, 59),
+        "next_run_at": None,
+    }
+    job = scheduler.get_job(DAILY_JOB_ID) if scheduler.running else None
+    if job and job.next_run_time:
+        schedule["next_run_at"] = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S")
+    return schedule
+
+
+def update_daily_schedule(enabled: bool, hour: int, minute: int) -> None:
+    hour = max(0, min(23, hour))
+    minute = max(0, min(59, minute))
+    set_state_value("daily_news_enabled", "1" if enabled else "0")
+    set_state_value("daily_news_hour", str(hour))
+    set_state_value("daily_news_minute", str(minute))
+    configure_daily_news_job()
+
+
+def configure_daily_news_job() -> None:
+    schedule = get_daily_schedule()
+    if scheduler.get_job(DAILY_JOB_ID):
+        scheduler.remove_job(DAILY_JOB_ID)
+    if not schedule["enabled"]:
+        return
     scheduler.add_job(
         lambda: start_job("news"),
-        CronTrigger(hour=settings.daily_check_hour, minute=settings.daily_check_minute),
-        id="daily-news-check",
+        CronTrigger(hour=int(schedule["hour"]), minute=int(schedule["minute"])),
+        id=DAILY_JOB_ID,
         replace_existing=True,
         max_instances=1,
     )
-    scheduler.start()
+
+
+def parse_bool(value: str | None, default: bool) -> bool:
+    if value is None:
+        return default
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
+def parse_int(value: str | None, default: int, minimum: int, maximum: int) -> int:
+    try:
+        number = int(value) if value is not None else default
+    except ValueError:
+        number = default
+    return max(minimum, min(maximum, number))

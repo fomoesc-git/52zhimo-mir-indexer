@@ -25,7 +25,7 @@ from app.repository import (
     list_resources,
     recent_runs,
 )
-from app.tasks import ensure_scheduler, pause_job, resume_job, start_job, state
+from app.tasks import ensure_scheduler, get_daily_schedule, pause_job, resume_job, start_job, state, update_daily_schedule
 
 
 settings = get_settings()
@@ -227,10 +227,23 @@ def updates(request: Request):
             "request": request,
             "settings": settings,
             "rows": list_daily_updates(),
+            "schedule": get_daily_schedule(),
             "task": state,
             "active": "updates",
         },
     )
+
+
+@app.post("/updates/schedule")
+@login_required
+def update_news_schedule(
+    request: Request,
+    enabled: str | None = Form(default=None),
+    hour: int = Form(...),
+    minute: int = Form(...),
+):
+    update_daily_schedule(enabled == "1", hour, minute)
+    return RedirectResponse("/updates", status_code=303)
 
 
 @app.get("/updates/{update_id}")

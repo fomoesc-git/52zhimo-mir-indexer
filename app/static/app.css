@@ -328,6 +328,17 @@ th {
   width: 88px;
 }
 
+.check-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+}
+
+.check-field input {
+  min-height: 0;
+}
+
 .progress-grid {
   display: grid;
   grid-template-columns: 160px 220px 1fr 1.4fr;

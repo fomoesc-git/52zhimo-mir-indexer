@@ -14,6 +14,24 @@ class UpsertResult:
     id: int
 
 
+def get_state_value(key: str, default: str | None = None) -> str | None:
+    with connect() as conn:
+        row = conn.execute("SELECT value FROM app_state WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def set_state_value(key: str, value: str) -> None:
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO app_state (key, value, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+            """,
+            (key, value),
+        )
+
+
 def upsert_publisher(record: PublisherRecord, status: str | None = None) -> UpsertResult:
     with connect() as conn:
         existing = conn.execute(
