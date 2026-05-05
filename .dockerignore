@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.DS_Store
+.git/
+data/*.db
+data/*.db-*
+data/exports/

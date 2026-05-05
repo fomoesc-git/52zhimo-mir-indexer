@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="grid stats">
+  <div class="metric">
+    <span>资源总数</span>
+    <strong>{{ stats.resources }}</strong>
+  </div>
+  <div class="metric">
+    <span>出版商</span>
+    <strong>{{ stats.publishers }}</strong>
+  </div>
+  <div class="metric">
+    <span>含下载链接</span>
+    <strong>{{ stats.downloads }}</strong>
+  </div>
+  <div class="metric">
+    <span>待确认出版商</span>
+    <strong>{{ stats.discovered_publishers }}</strong>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h1>采集任务</h1>
+    <div class="actions">
+      <a class="button secondary" href="/exports/csv">下载 CSV</a>
+      <a class="button secondary" href="/exports/xlsx">下载 XLSX</a>
+    </div>
+  </div>
+  <div class="job-grid">
+    <form method="post" action="/jobs/start">
+      <input type="hidden" name="kind" value="news">
+      <button class="button" type="submit" {% if task.running %}disabled{% endif %}>检查最新 news</button>
+    </form>
+    <form method="post" action="/jobs/start">
+      <input type="hidden" name="kind" value="publishers">
+      <button class="button" type="submit" {% if task.running %}disabled{% endif %}>重扫已知出版商</button>
+    </form>
+    <form method="post" action="/jobs/start">
+      <input type="hidden" name="kind" value="full">
+      <button class="button danger" type="submit" {% if task.running %}disabled{% endif %}>全量初始化</button>
+    </form>
+  </div>
+  <p class="hint">全量初始化会从出版商目录开始串行采集，首次运行可能需要数小时；默认请求间隔 {{ settings.request_delay_seconds }} 秒。</p>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>最近任务</h2>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>类型</th>
+        <th>状态</th>
+        <th>开始</th>
+        <th>结束</th>
+        <th>资源</th>
+        <th>错误</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run in runs %}
+      <tr>
+        <td>{{ run.id }}</td>
+        <td>{{ run.run_type }}</td>
+        <td><span class="badge {{ run.status }}">{{ run.status }}</span></td>
+        <td>{{ run.started_at }}</td>
+        <td>{{ run.finished_at or '' }}</td>
+        <td>+{{ run.resources_created }} / 更新 {{ run.resources_updated }}</td>
+        <td>{{ run.errors }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="empty">还没有任务记录。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

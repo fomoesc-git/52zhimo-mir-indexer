@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="panel">
+  <div class="panel-head">
+    <h1>资源索引</h1>
+    <div class="actions">
+      <a class="button secondary" href="/exports/csv">CSV</a>
+      <a class="button secondary" href="/exports/xlsx">XLSX</a>
+    </div>
+  </div>
+
+  <form class="filters" method="get" action="/resources">
+    <input type="search" name="q" value="{{ q }}" placeholder="搜索标题、出版商、分类">
+    <input type="text" name="publisher" value="{{ publisher }}" placeholder="出版商精确筛选">
+    <button class="button" type="submit">筛选</button>
+    <a class="button ghost" href="/resources">清空</a>
+  </form>
+
+  <div class="table-meta">共 {{ total }} 条，当前第 {{ page }} 页</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>标题</th>
+          <th>出版商</th>
+          <th>比例</th>
+          <th>格式</th>
+          <th>幅面</th>
+          <th>大小</th>
+          <th>页数</th>
+          <th>下载</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>
+            <a href="{{ row.source_url }}" target="_blank" rel="noopener">{{ row.title }}</a>
+            <div class="muted">{{ row.category or '' }} {{ row.published_at or '' }}</div>
+          </td>
+          <td>{{ row.publisher or '' }}</td>
+          <td>{{ row.scale or '' }}</td>
+          <td>{{ row.file_format or '' }}</td>
+          <td>{{ row.paper_format or '' }}</td>
+          <td>{{ row.file_size or '' }}</td>
+          <td>{{ row.total_pages or '' }}</td>
+          <td>
+            {% if row.download_url %}
+            <a href="{{ row.download_url }}" target="_blank" rel="noopener">打开</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="empty">暂无资源。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="pager">
+    {% if page > 1 %}
+    <a class="button ghost" href="/resources?q={{ q }}&publisher={{ publisher }}&page={{ page - 1 }}">上一页</a>
+    {% endif %}
+    {% if page * limit < total %}
+    <a class="button ghost" href="/resources?q={{ q }}&publisher={{ publisher }}&page={{ page + 1 }}">下一页</a>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

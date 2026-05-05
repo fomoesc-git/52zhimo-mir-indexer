@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="panel">
+  <div class="panel-head">
+    <h1>出版商索引</h1>
+    <div class="actions">
+      <a class="button ghost" href="/publishers">全部</a>
+      <a class="button ghost" href="/publishers?status=active">已确认</a>
+      <a class="button ghost" href="/publishers?status=discovered">待确认</a>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>名称</th>
+        <th>类型</th>
+        <th>状态</th>
+        <th>源页面</th>
+        <th>最后采集</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ row.name }}</td>
+        <td>{{ row.kind }}</td>
+        <td><span class="badge {{ row.status }}">{{ row.status }}</span></td>
+        <td>
+          {% if row.source_url %}
+          <a href="{{ row.source_url }}" target="_blank" rel="noopener">打开</a>
+          {% else %}
+          <span class="muted">news 发现，等待确认</span>
+          {% endif %}
+        </td>
+        <td>{{ row.last_crawled_at or '' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="empty">暂无出版商。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
