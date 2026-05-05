@@ -126,10 +126,11 @@ def parse_publisher_resource_links(html_text: str) -> list[str]:
 
 def parse_news_list(html_text: str) -> list[str]:
     soup = BeautifulSoup(html_text, "html.parser")
+    container = soup.select_one("#allEntries") or soup
     links: list[str] = []
     seen: set[str] = set()
 
-    for link in soup.select("a[href*='/news/']"):
+    for link in container.select("a[href*='/news/']"):
         url = normalize_url(link["href"])
         if is_news_detail(url) and url not in seen:
             seen.add(url)

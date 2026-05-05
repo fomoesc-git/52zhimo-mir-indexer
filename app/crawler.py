@@ -120,8 +120,8 @@ class Crawler:
             else:
                 stats.resources_updated += 1
 
-            for candidate in record.publisher_candidates:
-                if candidate and (not publisher or candidate.lower() != publisher.name.lower()):
+            for candidate in record.publisher_candidates if publisher is None else []:
+                if candidate:
                     discovered = upsert_discovered_publisher(candidate)
                     if discovered.created:
                         stats.publishers_created += 1
@@ -179,6 +179,7 @@ class Crawler:
         stats = CrawlStats()
         status = "ok"
         try:
+            await self.crawl_publishers_index(run_id, stats)
             html = await self.client.get_text(f"{self.settings.base_url}/news/")
             links = parse_news_list(html)
             stats.resource_links_seen = len(links)
