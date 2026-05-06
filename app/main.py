@@ -26,6 +26,7 @@ from app.repository import (
     list_publisher_options,
     list_publishers,
     list_resources,
+    mark_stale_running_tasks,
     recent_runs,
 )
 from app.tasks import (
@@ -67,6 +68,7 @@ def page_count_for(total: int, limit: int) -> int:
 @app.on_event("startup")
 def startup() -> None:
     init_db()
+    mark_stale_running_tasks()
     ensure_scheduler()
 
 
@@ -330,6 +332,13 @@ def logs(request: Request, run_id: int | None = Query(default=None)):
             "active": "logs",
         },
     )
+
+
+@app.post("/logs/cleanup-stale")
+@login_required
+def cleanup_stale_logs(request: Request):
+    mark_stale_running_tasks()
+    return RedirectResponse("/logs", status_code=303)
 
 
 @app.get("/updates")

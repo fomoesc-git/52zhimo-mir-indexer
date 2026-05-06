@@ -380,6 +380,29 @@ def finish_run(run_id: int, status: str, stats: dict[str, int], message: str | N
         )
 
 
+def mark_stale_running_tasks() -> tuple[int, int]:
+    with connect() as conn:
+        run_result = conn.execute(
+            """
+            UPDATE crawl_runs
+            SET status = 'stopped',
+                finished_at = COALESCE(finished_at, CURRENT_TIMESTAMP),
+                message = COALESCE(message, '服务重启后自动标记为已停止')
+            WHERE status = 'running'
+            """
+        )
+        update_result = conn.execute(
+            """
+            UPDATE daily_updates
+            SET status = 'stopped',
+                finished_at = COALESCE(finished_at, CURRENT_TIMESTAMP),
+                notes = COALESCE(notes, '服务重启后自动标记为已停止')
+            WHERE status = 'running'
+            """
+        )
+        return int(run_result.rowcount or 0), int(update_result.rowcount or 0)
+
+
 def log_error(run_id: int | None, url: str, stage: str, message: str) -> None:
     with connect() as conn:
         conn.execute(
