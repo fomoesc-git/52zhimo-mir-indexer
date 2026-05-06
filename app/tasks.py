@@ -8,7 +8,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.config import get_settings
-from app.crawler import CrawlStats, run_job_sync
+from app.crawler import CrawlStats, CrawlStopped, run_job_sync
 from app.repository import get_state_value, set_state_value
 
 
@@ -16,6 +16,7 @@ from app.repository import get_state_value, set_state_value
 class TaskState:
     running: bool = False
     paused: bool = False
+    stop_requested: bool = False
     current_kind: str | None = None
     current_publisher_id: int | None = None
     stage: str = "空闲"
@@ -63,6 +64,7 @@ def start_job(
             return False
         state.running = True
         state.paused = False
+        state.stop_requested = False
         state.current_kind = kind
         state.current_publisher_id = publisher_id
         state.stage = "准备开始"
@@ -113,12 +115,16 @@ def _run_job_thread(
             f"新增出版商 {stats.publishers_created}，错误 {stats.errors}"
         )
         status = "ok" if stats.errors == 0 else "warning"
+    except CrawlStopped:
+        status = "stopped"
+        message = "任务已手动停止"
     except Exception as exc:
         status = "failed"
         message = str(exc)
     with lock:
         state.running = False
         state.paused = False
+        state.stop_requested = False
         state.last_kind = kind
         state.current_kind = None
         state.current_publisher_id = None
@@ -149,6 +155,8 @@ def pause_job() -> bool:
     with lock:
         if not state.running:
             return False
+        if state.stop_requested:
+            return False
         state.paused = True
         state.stage = "已暂停，等待恢复"
         return True
@@ -158,16 +166,31 @@ def resume_job() -> bool:
     with lock:
         if not state.running:
             return False
+        if state.stop_requested:
+            return False
         state.paused = False
         state.stage = "恢复中"
+        return True
+
+
+def stop_job() -> bool:
+    with lock:
+        if not state.running:
+            return False
+        state.stop_requested = True
+        state.paused = False
+        state.stage = "正在停止，等待当前请求结束"
         return True
 
 
 def wait_if_paused() -> None:
     while True:
         with lock:
+            stop_requested = state.stop_requested
             paused = state.paused
             running = state.running
+        if stop_requested:
+            raise CrawlStopped("任务已手动停止")
         if not running or not paused:
             return
         time.sleep(1)

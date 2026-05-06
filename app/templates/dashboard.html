@@ -24,7 +24,7 @@
 <section class="panel">
   <div class="panel-head">
     <h2>实时采集进度</h2>
-    <span class="badge warning">{{ '已暂停' if task.paused else '运行中' }}</span>
+    <span class="badge warning">{{ '停止中' if task.stop_requested else ('已暂停' if task.paused else '运行中') }}</span>
   </div>
   <div class="progress-grid">
     <div><span>任务类型</span><strong>{{ task.current_kind }}</strong></div>
@@ -48,10 +48,14 @@
   </div>
   <p class="hint">页面每 5 秒自动刷新一次。全量采集是串行礼貌访问，速度不会很快。</p>
   <div class="actions">
-    {% if task.paused %}
+    {% if task.stop_requested %}
+    <button class="button danger" type="button" disabled>正在停止</button>
+    {% elif task.paused %}
     <form method="post" action="/jobs/resume"><button class="button" type="submit">恢复任务</button></form>
+    <form method="post" action="/jobs/stop"><button class="button danger" type="submit">停止任务</button></form>
     {% else %}
     <form method="post" action="/jobs/pause"><button class="button secondary" type="submit">暂停任务</button></form>
+    <form method="post" action="/jobs/stop"><button class="button danger" type="submit">停止任务</button></form>
     {% endif %}
   </div>
 </section>

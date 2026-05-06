@@ -45,6 +45,10 @@ DAILY_LAST_CHECKED_KEY = "daily_news_last_checked_at"
 NEWS_PAGE_LIMIT = 20
 
 
+class CrawlStopped(Exception):
+    pass
+
+
 @dataclass
 class CrawlStats:
     publishers_seen: int = 0
@@ -124,6 +128,8 @@ class Crawler:
                 self.report(stats, "读取出版商目录", f"第 {index}/{total_pages} 页", url)
                 page_html = await self.client.get_text(url)
                 publishers.extend(parse_publisher_index(page_html))
+            except CrawlStopped:
+                raise
             except Exception as exc:
                 stats.errors += 1
                 self.report(stats, "出版商目录失败", f"第 {index} 页", url)
@@ -164,6 +170,8 @@ class Crawler:
                 links = parse_publisher_resource_links(html)
                 stats.resource_links_seen += len(links)
                 update_publisher_counts(publisher.source_url, len(links))
+            except CrawlStopped:
+                raise
             except Exception as exc:
                 stats.errors += 1
                 self.report(stats, "统计出版商资源数失败", publisher.name, publisher.source_url)
@@ -194,6 +202,8 @@ class Crawler:
                 await self.crawl_resource(run_id, url, stats, publisher, merge=True)
             update_publisher_counts(publisher.source_url, len(links))
             mark_publisher_crawled(publisher.source_url)
+        except CrawlStopped:
+            raise
         except Exception as exc:
             stats.errors += 1
             self.report(stats, "出版商页面失败", publisher.name, publisher.source_url)
@@ -228,6 +238,8 @@ class Crawler:
                     discovered = upsert_discovered_publisher(candidate)
                     if discovered.created:
                         stats.publishers_created += 1
+        except CrawlStopped:
+            raise
         except Exception as exc:
             stats.errors += 1
             self.report(stats, "资源详情失败", publisher.name if publisher else "news", normalized)
@@ -242,6 +254,10 @@ class Crawler:
             publishers = await self.crawl_publishers_index(run_id, stats)
             for publisher in publishers:
                 await self.crawl_publisher(run_id, publisher, stats)
+        except CrawlStopped:
+            status = "stopped"
+            stats.messages.append("任务已手动停止")
+            raise
         except Exception as exc:
             status = "failed"
             stats.errors += 1
@@ -283,6 +299,10 @@ class Crawler:
             self.report(stats, "重扫已知出版商开始", f"{len(publishers)} 个出版商")
             for publisher in publishers:
                 await self.crawl_publisher(run_id, publisher, stats)
+        except CrawlStopped:
+            status = "stopped"
+            stats.messages.append("任务已手动停止")
+            raise
         except Exception as exc:
             status = "failed"
             stats.errors += 1
@@ -338,6 +358,10 @@ class Crawler:
                             row["title"],
                             action,
                         )
+        except CrawlStopped:
+            status = "stopped"
+            stats.messages.append("任务已手动停止")
+            raise
         except Exception as exc:
             status = "failed"
             stats.errors += 1
@@ -370,6 +394,8 @@ class Crawler:
                 self.report(stats, "读取 news 列表", f"第 {page} 页", url)
                 html = await self.client.get_text(url)
                 entries = parse_news_entries(html)
+            except CrawlStopped:
+                raise
             except Exception as exc:
                 stats.errors += 1
                 self.report(stats, "news 列表失败", f"第 {page} 页", url)
@@ -416,6 +442,10 @@ class Crawler:
             )
             stats.publishers_seen = 1
             await self.crawl_publisher(run_id, publisher, stats)
+        except CrawlStopped:
+            status = "stopped"
+            stats.messages.append("任务已手动停止")
+            raise
         except Exception as exc:
             status = "failed"
             stats.errors += 1
@@ -460,6 +490,10 @@ class Crawler:
                 await self.crawl_publisher(run_id, publisher, stats)
                 if task_interval_seconds > 0 and index < len(publishers):
                     await self.sleep_with_pause(task_interval_seconds, stats, "出版商队列间隔等待", publisher.name)
+        except CrawlStopped:
+            status = "stopped"
+            stats.messages.append("任务已手动停止")
+            raise
         except Exception as exc:
             status = "failed"
             stats.errors += 1
@@ -493,6 +527,10 @@ class Crawler:
             self.report(stats, "缺字段补采开始", f"{len(urls)} 个资源")
             for url in urls:
                 await self.crawl_resource(run_id, url, stats, merge=True)
+        except CrawlStopped:
+            status = "stopped"
+            stats.messages.append("任务已手动停止")
+            raise
         except Exception as exc:
             status = "failed"
             stats.errors += 1
@@ -508,6 +546,10 @@ class Crawler:
         status = "ok"
         try:
             await self.crawl_publishers_index(run_id, stats, refresh_counts=True)
+        except CrawlStopped:
+            status = "stopped"
+            stats.messages.append("任务已手动停止")
+            raise
         except Exception as exc:
             status = "failed"
             stats.errors += 1

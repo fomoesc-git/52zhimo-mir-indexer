@@ -63,7 +63,7 @@
           <td>{{ error.created_at }}</td>
           <td>#{{ error.run_id or '' }} {{ error.run_type or '' }}</td>
           <td>{{ error.stage }}</td>
-          <td class="url-text">
+          <td class="url-text allow-wrap log-url">
             {% if error.url %}<a href="{{ error.url }}" target="_blank" rel="noopener">{{ error.url }}</a>{% endif %}
           </td>
           <td class="allow-wrap">{{ error.message }}</td>

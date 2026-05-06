@@ -131,6 +131,11 @@ nav a:hover {
   color: var(--red);
 }
 
+.notice.stopped {
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -391,6 +396,11 @@ tbody tr:hover {
   color: var(--red);
 }
 
+.badge.stopped {
+  background: #e5e7eb;
+  color: #4b5563;
+}
+
 .empty {
   color: var(--muted);
   text-align: center;
@@ -456,6 +466,17 @@ tbody tr:hover {
 .url-text {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
+}
+
+.nowrap-table td.log-url,
+.log-url a {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.log-url {
+  max-width: 420px;
 }
 
 .login-body {

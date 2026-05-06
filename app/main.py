@@ -28,7 +28,16 @@ from app.repository import (
     list_resources,
     recent_runs,
 )
-from app.tasks import ensure_scheduler, get_daily_schedule, pause_job, resume_job, start_job, state, update_daily_schedule
+from app.tasks import (
+    ensure_scheduler,
+    get_daily_schedule,
+    pause_job,
+    resume_job,
+    start_job,
+    state,
+    stop_job,
+    update_daily_schedule,
+)
 
 
 settings = get_settings()
@@ -174,6 +183,13 @@ def pause_crawl(request: Request):
 @login_required
 def resume_crawl(request: Request):
     resume_job()
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/jobs/stop")
+@login_required
+def stop_crawl(request: Request):
+    stop_job()
     return RedirectResponse("/", status_code=303)
 
 

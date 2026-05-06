@@ -54,13 +54,13 @@ class FetchClient:
             try:
                 response = await self._client.get(url)
                 if response.status_code in {403, 429, 500, 502, 503, 504}:
-                    await asyncio.sleep(10 + attempt * 20)
+                    await self._sleep(10 + attempt * 20)
                 response.raise_for_status()
                 response.encoding = response.encoding or "utf-8"
                 return response.text
             except (httpx.HTTPError, httpx.TimeoutException) as exc:
                 last_error = exc
-                await asyncio.sleep(2 + attempt * 3)
+                await self._sleep(2 + attempt * 3)
         raise RuntimeError(f"Fetch failed: {last_error}") from last_error
 
     async def _respect_delay(self) -> None:
@@ -69,5 +69,16 @@ class FetchClient:
         base_delay = self.request_delay_seconds + random.uniform(0, self.request_jitter_seconds)
         wait = base_delay - (now - self._last_request)
         if wait > 0:
-            await asyncio.sleep(wait)
+            await self._sleep(wait)
         self._last_request = loop.time()
+
+    async def _sleep(self, seconds: float) -> None:
+        remaining = max(0.0, seconds)
+        while remaining > 0:
+            if self.pause_checker:
+                self.pause_checker()
+            step = min(1.0, remaining)
+            await asyncio.sleep(step)
+            remaining -= step
+        if self.pause_checker:
+            self.pause_checker()
